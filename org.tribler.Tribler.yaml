@@ -260,7 +260,7 @@ modules:
           - install -Dm644 -t ${FLATPAK_DEST}/share/applications build/debian/tribler/usr/share/applications/tribler.desktop
           - install -Dm644 -t ${FLATPAK_DEST}/share/metainfo org.tribler.Tribler.metainfo.xml
             
-          - install -Dm644 src/tribler-gui/tribler_gui/images/tribler.png ${FLATPAK_DEST}/share/icons/hicolor/48x48/apps
+          - install -Dm644 src/tribler-gui/tribler_gui/images/tribler.png -t ${FLATPAK_DEST}/share/icons/hicolor/48x48/apps
           - install -Dm644 tribler_64.png  ${FLATPAK_DEST}/share/icons/hicolor/64x64/apps/tribler.png
           - install -Dm644 tribler_128.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/tribler.png
           - install -Dm644 tribler_256.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/tribler.png

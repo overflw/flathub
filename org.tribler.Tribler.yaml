@@ -1,65 +1,298 @@
+# flatpak install flathub runtime/org.kde.Sdk/x86_64/5.15
+# flatpak install flathub org.freedesktop.Sdk.Extension.rust-stable/x86_64/20.08
 id: org.tribler.Tribler
+runtime: org.kde.Platform
+runtime-version: "5.15"
+sdk: org.kde.Sdk
+# cryptography module wants to build with rust by default (CRYPTOGRAPHY_DONT_BUILD_RUST=1)
+sdk-extensions: [ org.freedesktop.Sdk.Extension.rust-stable ]
 command: tribler
-runtime: org.freedesktop.Platform
-runtime-version: '20.08'
-sdk: org.freedesktop.Sdk
-separate-locales: false
-finish-args:
-  - --share=ipc
-  - --socket=x11
-  - --device=dri
-  - --socket=pulseaudio
-  - --share=network
-  - --filesystem=xdg-download
-  - --persist=.Tribler
-  - --own-name=org.kde.*
-  - --talk-name=org.freedesktop.Notifications
-modules:
-  - name: tribler
-    buildsystem: simple
-    build-commands:
-      - ar x tribler.deb
-      - tar xf data.tar.xz
-      - mkdir -p /app/bin
-      - install tribler /app/bin
-      - install -Dm644 usr/share/applications/tribler.desktop /app/share/applications/org.tribler.Tribler.desktop
-      - |
-        for size in 64 128 256 512; do
-          install -Dm644 tribler_${size}.png /app/share/icons/hicolor/${size}x${size}/apps/org.tribler.Tribler.png || exit 1
-        done
-      - mv usr/share/tribler /app/share
-      - install -Dm644 org.tribler.Tribler.metainfo.xml -t /app/share/metainfo
-    sources:
-      - type: file
-        url: https://github.com/Tribler/tribler/releases/download/v7.8.0/tribler_7.8.0_all.deb
-        sha256: 22ac6be8a06024dd58f1759c89816100461543f593056f697b2c40d851df85a4
-        dest-filename: tribler.deb
-        only-arches:
-          - x86_64
-      - type: file
-        path: README.md
-      - type: dir
-        path: icons
-      - type: file
-        path: org.tribler.Tribler.metainfo.xml
-      - type: script
-        dest-filename: tribler
-        commands: 
-          - exec /app/share/tribler/tribler
-    post-install:
-      - desktop-file-edit --set-key=Exec --set-value="/app/bin/tribler %U" /app/share/applications/org.tribler.Tribler.desktop
-      - desktop-file-edit --set-key=Icon --set-value=org.tribler.Tribler /app/share/applications/org.tribler.Tribler.desktop
-  - name: libsodium
-    sources:
-      - type: archive
-        url: https://github.com/jedisct1/libsodium/releases/download/1.0.18-RELEASE/libsodium-1.0.18.tar.gz
-        sha256: 6f504490b342a4f8a4c4a02fc9b866cbef8622d5df4e5452b46be121e46636c1
+rename-desktop-file: tribler.desktop
+rename-icon: tribler
 cleanup:
-  - /include
-  - /lib/pkgconfig
-  - /share/gtk-doc
-  - '*.la'
-  - '*.deb'
-  - '*.xz'
-  - 'debian-binary'
-  - /usr
+    - /bin/chardetect
+    - /bin/faker
+    - /bin/pybind11-config
+    - /bin/pyqt-bundle
+    - /bin/pyqt-qt-wheel
+    - /bin/sip-*
+    - /bin/yappi
+    - /include
+    - /lib/*.a
+    - /lib/*.la
+    - /lib/cmake
+    - /lib/pkgconfig
+    - /share/cmake
+    - /share/doc
+    - /share/man
+    - /share/metainfo
+
+cleanup-commands:
+    - find /app/lib/python3.8/site-packages -type d -name test -exec rm -rf {} +
+    - find /app/lib/python3.8/site-packages -type d -name tests -exec rm -rf {} +
+    - find /app/lib/python3.8/site-packages -type d -name examples -exec rm -rf {} +
+
+finish-args:
+    - --share=ipc
+    - --share=network
+    - --socket=x11
+    # Unfortunately Qt on wayland still has issues
+    # --socket=wayland
+    # --socket=fallback-x11
+    - --socket=pulseaudio
+    - --device=dri
+    - --filesystem=xdg-download/TriblerDownloads:create
+    - --filesystem=home/.Tribler:create
+    # --persist=.Tribler
+    # --talk-name=org.freedesktop.Notifications
+
+modules:
+    - name: PyQt5
+      buildsystem: simple
+      cleanup: [ /scratchdir, /bin/pyuic5]
+      build-commands:
+          - sip-build --confirm-license
+                      --build-dir build
+                      --no-make
+                      --no-dbus-python
+                      --no-designer-plugin
+                      --no-docstrings
+                      --no-qml-plugin
+                      --no-tools
+                      --qt-shared 
+                      --disable=pylupdate
+                      --disable=pyrcc
+                      --disable=QtBluetooth
+                      --disable=QtDBus
+                      --disable=QtDesigner
+                      --disable=QtHelp
+                      --disable=QtLocation
+                      --disable=QtMultimedia
+                      --disable=QtMultimediaWidgets
+                      --disable=QtNfc
+                      --disable=QtPositioning
+                      --disable=QtPrintSupport
+                      --disable=QtQml
+                      --disable=QtQuick
+                      --disable=QtQuickWidgets
+                      --disable=QtRemoteObjects
+                      --disable=QtSensors
+                      --disable=QtSerialPort
+                      --disable=QtSql
+                      --disable=QtTextToSpeech
+                      --disable=QtWebChannel
+                      --disable=QtWebKit
+                      --disable=QtWebKitWidgets
+                      --disable=QtWebSockets
+                      --disable=QtX11Extras
+                      --disable=QtXml
+                      --disable=QtXmlPatterns
+                      --disable=QtOpenGL
+                      --disable=_QOpenGLFunctions_2_0
+                      --disable=_QOpenGLFunctions_2_1
+                      --disable=_QOpenGLFunctions_4_1_Core
+                      # --verbose
+
+          - make -C build -j ${FLATPAK_BUILDER_N_JOBS}
+          - make -C build INSTALL_ROOT=${FLATPAK_DEST}/scratchdir install
+
+          - cp -ar ${FLATPAK_DEST}/scratchdir/usr/* ${FLATPAK_DEST}
+          - cp pyuic5 ${FLATPAK_DEST}/bin
+
+      sources:
+          - type: archive
+            url: https://files.pythonhosted.org/packages/8e/a4/d5e4bf99dd50134c88b95e926d7b81aad2473b47fde5e3e4eac2c69a8942/PyQt5-5.15.4.tar.gz
+            sha256: 2a69597e0dd11caabe75fae133feca66387819fc9bc050f547e5551bce97e5be
+          # pyuic5 is referenced in the pyqtgraph source, but does not seem to be neccessary
+          - type: script
+            commands:
+                - exec /usr/bin/python -m PyQt5.uic.pyuic ${1+"$@"}
+            dest-filename: pyuic5
+      modules: [ PyQt5-deps.json ]
+
+    # numpy:
+    # - build manually in order to make it find and link openblas in /app
+    # - TODO: investigate funky CFLAGS (sse avx popcnt, etc): probably fine
+    # https://numpy.org/devdocs/reference/simd/simd-optimizations.html
+    - name: numpy
+      buildsystem: simple
+      cleanup: [ /bin/f2py, /bin/f2py3, /bin/f2py3.8 ]
+      build-options:
+          env:
+              OPENBLAS: ${FLATPAK_DEST}/lib/libopenblas.so
+      build-commands:
+          - python setup.py build
+          - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
+      sources:
+          - type: archive
+            url: https://files.pythonhosted.org/packages/82/a8/1e0f86ae3f13f7ce260e9f782764c16559917f24382c74edfb52149897de/numpy-1.20.2.zip
+            sha256: 878922bf5ad7550aa044aa9301d417e2d3ae50f0f577de92051d739ac6096cee
+          - type: file
+            path: config/numpy-site.cfg
+            dest-filename: site.cfg
+      modules:
+          - name: openblas
+            buildsystem: cmake-ninja
+            config-opts:
+                - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+                - -DBUILD_SHARED_LIBS=ON
+                - -DDYNAMIC_ARCH=ON
+            sources:
+                - type: archive
+                  url: https://github.com/xianyi/OpenBLAS/releases/download/v0.3.13/OpenBLAS-0.3.13.tar.gz
+                  sha256: 79197543b17cc314b7e43f7a33148c308b0807cd6381ee77f77e15acf3e6459e
+
+    # scipy:
+    # - build manually in order to make it find and link openblas in /app
+    # - install with pip to avoid ensure-writable: [ /lib/python*/site-packages/easy-install.pth ]
+    # - TODO: more funky CFLAGS
+    - name: scipy
+      buildsystem: simple
+      build-options:
+          env:
+              OPENBLAS: ${FLATPAK_DEST}/lib/libopenblas.so
+      build-commands:
+          - python setup.py build
+          - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
+      sources:
+          - type: archive
+            url: https://files.pythonhosted.org/packages/fe/fd/8704c7b7b34cdac850485e638346025ca57c5a859934b9aa1be5399b33b7/scipy-1.6.3.tar.gz
+            sha256: a75b014d3294fce26852a9d04ea27b5671d86736beb34acdfc05859246260707
+          - type: file
+            path: config/scipy-site.cfg
+            dest-filename: site.cfg
+      modules: [ scipy-deps.json ]
+
+    # matplotlib:
+    # https://github.com/flatpak/flatpak-builder-tools/issues/47
+    # - currently flatpak-pip-generator.py doesn't find all dependencies (cppy, certifi)
+    # - install qhull explicitly
+    # - configure to use system freetype and qhull (to avoid build-args: [ --share-network ])
+    - name: matplotlib
+      buildsystem: simple
+      build-options:
+          env:
+              MPLSETUPCFG: /run/build/matplotlib/matplotlib-setup.cfg
+      build-commands:
+          - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} "matplotlib==3.4.1" --no-build-isolation
+      sources:
+          - type: file
+            path: config/matplotlib-setup.cfg
+          - type: file
+            url: https://files.pythonhosted.org/packages/84/61/28711c7773a3a47c7f798cafc219968aab78d260c0d674696a077432bbd4/matplotlib-3.4.1.tar.gz
+            sha256: 84d4c4f650f356678a5d658a43ca21a41fca13f9b8b00169c0b76e6a6a948908
+      modules:
+          - matplotlib-deps.json
+          - name: qhull
+            buildsystem: cmake-ninja
+            cleanup: [ /bin/qconvex, /bin/qdelaunay, /bin/qhalf, /bin/qhull, /bin/qvoronoi, /bin/rbox ]
+            config-opts:
+                - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            sources:
+                - type: archive
+                  url: http://www.qhull.org/download/qhull-2020-src-8.0.2.tgz
+                  sha256: b5c2d7eb833278881b952c8a52d20179eab87766b00b865000469a45c1838b7e
+
+    - name: libsodium
+      buildsystem: autotools
+      sources:
+          - type: archive
+            url: https://github.com/jedisct1/libsodium/releases/download/1.0.18-RELEASE/libsodium-1.0.18.tar.gz
+            sha256: 6f504490b342a4f8a4c4a02fc9b866cbef8622d5df4e5452b46be121e46636c1
+
+    - name: libtorrent
+      buildsystem: cmake-ninja
+      config-opts:
+          - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          - -Dpython-bindings=ON 
+          - -Dboost-python-module-name=python
+      sources:
+          - type: archive
+            url: https://github.com/arvidn/libtorrent/releases/download/v1.2.13/libtorrent-rasterbar-1.2.13.tar.gz
+            sha256: 976d2771ffcd564f08a63351e9c22e842aaa8cd29f6f7fe25d169c038a844e85
+      modules:
+          - name: boost
+            buildsystem: simple
+            # libtorrent seems to link boost statically, except for needing libboost_python38.so
+            # also: https://github.com/flatpak/flatpak-builder/issues/262
+            cleanup: [ /lib/libboost_*e*, /lib/libboost_*j*, /lib/libboost_*l*, /lib/libboost_*m*, /lib/libboost_*r*, /lib/libboost_*w* ]
+            sources:
+                - type: archive
+                  url: https://dl.bintray.com/boostorg/release/1.75.0/source/boost_1_75_0.tar.bz2
+                  sha256: 953db31e016db7bb207f11432bef7df100516eeb746843fa0486a222e3fd49cb
+            build-commands:
+                - ./bootstrap.sh --prefix=${FLATPAK_DEST} --with-python=python3 
+                - ./b2 stage -j ${FLATPAK_BUILDER_N_JOBS} variant=release threading=multi link=shared debug-symbols=off
+                - ./b2 install --prefix=${FLATPAK_DEST} variant=release threading=multi link=shared debug-symbols=off
+
+    # cryptography:
+    # - depend on setuptools_rust (CRYPTOGRAPHY_DONT_BUILD_RUST=1 is going away)
+    # - use flatpak-cargo-generator.py to fetch cargo deps (flatpak-builder --sandbox as used on flathub, doesn't allow build-args: [ --share-network ])
+    # - build manually to ensure proper openssl support (ModuleNotFoundError: No module named 'cryptography.hazmat.bindings._openssl')
+    # - use pip to install to avoid ensure-writable: [ /lib/python*/site-packages/easy-install.pth ]
+    - name: cryptography
+      buildsystem: simple
+      build-options:
+          append-path: /usr/lib/sdk/rust-stable/bin
+          env: { CARGO_HOME: /run/build/cryptography/cargo }
+      build-commands:
+          - cargo --offline fetch --manifest-path src/rust/Cargo.toml --verbose
+          - cd src/rust && cargo --offline build --release --verbose
+
+          - python setup.py build
+          - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
+      sources:
+          - type: archive
+            url: https://files.pythonhosted.org/packages/9b/77/461087a514d2e8ece1c975d8216bc03f7048e6090c5166bc34115afdaa53/cryptography-3.4.7.tar.gz
+            sha256: 3d10de8116d25649631977cb37da6cbdd2d6fa0e0281d014a5b7d337255ca713
+
+          # flatpak-cargo-generator.py src/rust/Cargo.lock -o cryptography-cargo.json (on an unpacked cryptography tarball)
+          - cryptography-cargo.json
+      modules: [ cryptography-deps.json ]
+
+    - name: tribler
+      buildsystem: simple
+      build-commands: 
+          - cp -ar src ${FLATPAK_DEST}/Tribler
+          - install -Dm755 tribler.sh ${FLATPAK_DEST}/bin/tribler
+          - install -Dm755 tribler-headless.sh ${FLATPAK_DEST}/bin/tribler-headless
+
+          - install -Dm644 -t ${FLATPAK_DEST}/share/applications build/debian/tribler/usr/share/applications/tribler.desktop
+          - install -Dm644 -t ${FLATPAK_DEST}/share/metainfo org.tribler.Tribler.metainfo.xml
+            
+          - install -Dm644 src/tribler-gui/tribler_gui/images/tribler.png ${FLATPAK_DEST}/share/icons/hicolor/48x48/apps
+          - install -Dm644 tribler_64.png  ${FLATPAK_DEST}/share/icons/hicolor/64x64/apps/tribler.png
+          - install -Dm644 tribler_128.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/tribler.png
+          - install -Dm644 tribler_256.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/tribler.png
+          - install -Dm644 tribler_512.png ${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/tribler.png
+      sources: 
+          - type: archive
+            url: https://github.com/Tribler/tribler/releases/download/v7.9.0/Tribler-v7.9.0.tar.xz
+            sha256: 4cc1af551f000078fb12b9c958ddaa444334d202310b668cfd62d1e8eeca9bc5
+          - type: file
+            path: org.tribler.Tribler.metainfo.xml
+          - type: dir
+            path: tribler
+      modules:
+          # python-pkgconfig is a dependency of python-lz4, pkgconfig>=1.5 pulls in python-poetry which
+          # is another can of worms inside a sandbox
+          - no-time-for-poetry-deps.json
+          - tribler-deps.json
+
+          # the python install that comes with the runtime unfortunately doesn't have lib2to3
+          # https://github.com/devos50/lib2to3 doesn't work either: the backend fails to
+          # start ('dictionary changed size during iteration')
+          # lib2to3 needs to match the installed python version (having tags match python
+          # releases makes more sense than v0.4)
+          - name: lib2to3
+            buildsystem: simple
+            build-commands:
+                - pip3 install --prefix=${FLATPAK_DEST} --no-deps .
+            sources:
+                - type: archive
+                  url: https://github.com/devos50/lib2to3/archive/refs/tags/v0.4.tar.gz
+                  sha256: 8be06b4446a98335a327ed6aae4c1ca7a26d0305173639565dc5f1470719a502
+                  dest-filename: lib2to3-0.4.tar.gz
+                - type: patch
+                  path: lib2to3-388.patch
+                  strip-components: 1

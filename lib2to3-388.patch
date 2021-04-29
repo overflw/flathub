@@ -1,0 +1,4236 @@
+diff --git a/lib2to3/Grammar.txt b/lib2to3/Grammar.txt
+index 8a96726..f6c2fc5 100644
+--- a/lib2to3/Grammar.txt
++++ b/lib2to3/Grammar.txt
+@@ -1,26 +1,7 @@
+-# Grammar for Python
+-
+-# Note:  Changing the grammar specified in this file will most likely
+-#        require corresponding changes in the parser module
+-#        (../Modules/parsermodule.c).  If you can't make the changes to
+-#        that module yourself, please co-ordinate the required changes
+-#        with someone who can; ask around on python-dev for help.  Fred
+-#        Drake <fdrake@acm.org> will probably be listening there.
+-
+-# NOTE WELL: You should also follow all the steps listed in PEP 306,
+-# "How to Change Python's Grammar"
+-
+-# Commands for Kees Blom's railroad program
+-#diagram:token NAME
+-#diagram:token NUMBER
+-#diagram:token STRING
+-#diagram:token NEWLINE
+-#diagram:token ENDMARKER
+-#diagram:token INDENT
+-#diagram:output\input python.bla
+-#diagram:token DEDENT
+-#diagram:output\textwidth 20.04cm\oddsidemargin  0.0cm\evensidemargin 0.0cm
+-#diagram:rules
++# Grammar for 2to3. This grammar supports Python 2.x and 3.x.
++
++# NOTE WELL: You should also follow all the steps listed at
++# https://devguide.python.org/grammar/
+ 
+ # Start symbols for the grammar:
+ #	file_input is a module or sequence of commands read from an input file;
+@@ -33,18 +14,59 @@ eval_input: testlist NEWLINE* ENDMARKER
+ 
+ decorator: '@' dotted_name [ '(' [arglist] ')' ] NEWLINE
+ decorators: decorator+
+-decorated: decorators (classdef | funcdef)
++decorated: decorators (classdef | funcdef | async_funcdef)
++async_funcdef: ASYNC funcdef
+ funcdef: 'def' NAME parameters ['->' test] ':' suite
+ parameters: '(' [typedargslist] ')'
+-typedargslist: ((tfpdef ['=' test] ',')*
+-                ('*' [tname] (',' tname ['=' test])* [',' '**' tname] | '**' tname)
+-                | tfpdef ['=' test] (',' tfpdef ['=' test])* [','])
++
++# The following definition for typedarglist is equivalent to this set of rules:
++#
++#     arguments = argument (',' argument)*
++#     argument = tfpdef ['=' test]
++#     kwargs = '**' tname [',']
++#     args = '*' [tname]
++#     kwonly_kwargs = (',' argument)* [',' [kwargs]]
++#     args_kwonly_kwargs = args kwonly_kwargs | kwargs
++#     poskeyword_args_kwonly_kwargs = arguments [',' [args_kwonly_kwargs]]
++#     typedargslist_no_posonly  = poskeyword_args_kwonly_kwargs | args_kwonly_kwargs
++#     typedarglist = arguments ',' '/' [',' [typedargslist_no_posonly]])|(typedargslist_no_posonly)"
++#
++# It needs to be fully expanded to allow our LL(1) parser to work on it.
++
++typedargslist: tfpdef ['=' test] (',' tfpdef ['=' test])* ',' '/' [
++                     ',' [((tfpdef ['=' test] ',')* ('*' [tname] (',' tname ['=' test])*
++                            [',' ['**' tname [',']]] | '**' tname [','])
++                     | tfpdef ['=' test] (',' tfpdef ['=' test])* [','])]
++                ] | ((tfpdef ['=' test] ',')* ('*' [tname] (',' tname ['=' test])*
++                     [',' ['**' tname [',']]] | '**' tname [','])
++                     | tfpdef ['=' test] (',' tfpdef ['=' test])* [','])
++
+ tname: NAME [':' test]
+ tfpdef: tname | '(' tfplist ')'
+ tfplist: tfpdef (',' tfpdef)* [',']
+-varargslist: ((vfpdef ['=' test] ',')*
+-              ('*' [vname] (',' vname ['=' test])*  [',' '**' vname] | '**' vname)
+-              | vfpdef ['=' test] (',' vfpdef ['=' test])* [','])
++
++# The following definition for varargslist is equivalent to this set of rules:
++#
++#     arguments = argument (',' argument )*
++#     argument = vfpdef ['=' test]
++#     kwargs = '**' vname [',']
++#     args = '*' [vname]
++#     kwonly_kwargs = (',' argument )* [',' [kwargs]]
++#     args_kwonly_kwargs = args kwonly_kwargs | kwargs
++#     poskeyword_args_kwonly_kwargs = arguments [',' [args_kwonly_kwargs]]
++#     vararglist_no_posonly = poskeyword_args_kwonly_kwargs | args_kwonly_kwargs
++#     varargslist = arguments ',' '/' [','[(vararglist_no_posonly)]] | (vararglist_no_posonly)
++#
++# It needs to be fully expanded to allow our LL(1) parser to work on it.
++
++varargslist: vfpdef ['=' test ](',' vfpdef ['=' test])* ',' '/' [',' [
++                     ((vfpdef ['=' test] ',')* ('*' [vname] (',' vname ['=' test])*
++                            [',' ['**' vname [',']]] | '**' vname [','])
++                            | vfpdef ['=' test] (',' vfpdef ['=' test])* [','])
++                     ]] | ((vfpdef ['=' test] ',')*
++                     ('*' [vname] (',' vname ['=' test])*  [',' ['**' vname [',']]]| '**' vname [','])
++                     | vfpdef ['=' test] (',' vfpdef ['=' test])* [','])
++
+ vname: NAME
+ vfpdef: vname | '(' vfplist ')'
+ vfplist: vfpdef (',' vfpdef)* [',']
+@@ -53,12 +75,13 @@ stmt: simple_stmt | compound_stmt
+ simple_stmt: small_stmt (';' small_stmt)* [';'] NEWLINE
+ small_stmt: (expr_stmt | print_stmt  | del_stmt | pass_stmt | flow_stmt |
+              import_stmt | global_stmt | exec_stmt | assert_stmt)
+-expr_stmt: testlist_star_expr (augassign (yield_expr|testlist) |
++expr_stmt: testlist_star_expr (annassign | augassign (yield_expr|testlist) |
+                      ('=' (yield_expr|testlist_star_expr))*)
++annassign: ':' test ['=' test]
+ testlist_star_expr: (test|star_expr) (',' (test|star_expr))* [',']
+-augassign: ('+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' |
++augassign: ('+=' | '-=' | '*=' | '@=' | '/=' | '%=' | '&=' | '|=' | '^=' |
+             '<<=' | '>>=' | '**=' | '//=')
+-# For normal assignments, additional restrictions enforced by the interpreter
++# For normal and annotated assignments, additional restrictions enforced by the interpreter
+ print_stmt: 'print' ( [ test (',' test)* [','] ] |
+                       '>>' test [ (',' test)+ [','] ] )
+ del_stmt: 'del' exprlist
+@@ -82,9 +105,10 @@ global_stmt: ('global' | 'nonlocal') NAME (',' NAME)*
+ exec_stmt: 'exec' expr ['in' test [',' test]]
+ assert_stmt: 'assert' test [',' test]
+ 
+-compound_stmt: if_stmt | while_stmt | for_stmt | try_stmt | with_stmt | funcdef | classdef | decorated
+-if_stmt: 'if' test ':' suite ('elif' test ':' suite)* ['else' ':' suite]
+-while_stmt: 'while' test ':' suite ['else' ':' suite]
++compound_stmt: if_stmt | while_stmt | for_stmt | try_stmt | with_stmt | funcdef | classdef | decorated | async_stmt
++async_stmt: ASYNC (funcdef | with_stmt | for_stmt)
++if_stmt: 'if' namedexpr_test ':' suite ('elif' namedexpr_test ':' suite)* ['else' ':' suite]
++while_stmt: 'while' namedexpr_test ':' suite ['else' ':' suite]
+ for_stmt: 'for' exprlist 'in' testlist ':' suite ['else' ':' suite]
+ try_stmt: ('try' ':' suite
+            ((except_clause ':' suite)+
+@@ -107,6 +131,7 @@ testlist_safe: old_test [(',' old_test)+ [',']]
+ old_test: or_test | old_lambdef
+ old_lambdef: 'lambda' [varargslist] ':' old_test
+ 
++namedexpr_test: test [':=' test]
+ test: or_test ['if' or_test 'else' test] | lambdef
+ or_test: and_test ('or' and_test)*
+ and_test: not_test ('and' not_test)*
+@@ -119,16 +144,16 @@ xor_expr: and_expr ('^' and_expr)*
+ and_expr: shift_expr ('&' shift_expr)*
+ shift_expr: arith_expr (('<<'|'>>') arith_expr)*
+ arith_expr: term (('+'|'-') term)*
+-term: factor (('*'|'/'|'%'|'//') factor)*
++term: factor (('*'|'@'|'/'|'%'|'//') factor)*
+ factor: ('+'|'-'|'~') factor | power
+-power: atom trailer* ['**' factor]
++power: [AWAIT] atom trailer* ['**' factor]
+ atom: ('(' [yield_expr|testlist_gexp] ')' |
+        '[' [listmaker] ']' |
+        '{' [dictsetmaker] '}' |
+        '`' testlist1 '`' |
+        NAME | NUMBER | STRING+ | '.' '.' '.')
+-listmaker: (test|star_expr) ( comp_for | (',' (test|star_expr))* [','] )
+-testlist_gexp: (test|star_expr) ( comp_for | (',' (test|star_expr))* [','] )
++listmaker: (namedexpr_test|star_expr) ( comp_for | (',' (namedexpr_test|star_expr))* [','] )
++testlist_gexp: (namedexpr_test|star_expr) ( comp_for | (',' (namedexpr_test|star_expr))* [','] )
+ lambdef: 'lambda' [varargslist] ':' test
+ trailer: '(' [arglist] ')' | '[' subscriptlist ']' | '.' NAME
+ subscriptlist: subscript (',' subscript)* [',']
+@@ -136,18 +161,30 @@ subscript: test | [test] ':' [test] [sliceop]
+ sliceop: ':' [test]
+ exprlist: (expr|star_expr) (',' (expr|star_expr))* [',']
+ testlist: test (',' test)* [',']
+-dictsetmaker: ( (test ':' test (comp_for | (',' test ':' test)* [','])) |
+-                (test (comp_for | (',' test)* [','])) )
++dictsetmaker: ( ((test ':' test | '**' expr)
++                 (comp_for | (',' (test ':' test | '**' expr))* [','])) |
++                ((test | star_expr)
++		 (comp_for | (',' (test | star_expr))* [','])) )
+ 
+ classdef: 'class' NAME ['(' [arglist] ')'] ':' suite
+ 
+-arglist: (argument ',')* (argument [',']
+-                         |'*' test (',' argument)* [',' '**' test] 
+-                         |'**' test)
+-argument: test [comp_for] | test '=' test  # Really [keyword '='] test
++arglist: argument (',' argument)* [',']
++
++# "test '=' test" is really "keyword '=' test", but we have no such token.
++# These need to be in a single rule to avoid grammar that is ambiguous
++# to our LL(1) parser. Even though 'test' includes '*expr' in star_expr,
++# we explicitly match '*' here, too, to give it proper precedence.
++# Illegal combinations and orderings are blocked in ast.c:
++# multiple (test comp_for) arguments are blocked; keyword unpackings
++# that precede iterable unpackings are blocked; etc.
++argument: ( test [comp_for] |
++            test ':=' test |
++            test '=' test |
++            '**' test |
++	        '*' test )
+ 
+ comp_iter: comp_for | comp_if
+-comp_for: 'for' exprlist 'in' testlist_safe [comp_iter]
++comp_for: [ASYNC] 'for' exprlist 'in' testlist_safe [comp_iter]
+ comp_if: 'if' old_test [comp_iter]
+ 
+ testlist1: test (',' test)*
+@@ -155,4 +192,5 @@ testlist1: test (',' test)*
+ # not used in grammar, but may appear in "node" passed from Parser to Compiler
+ encoding_decl: NAME
+ 
+-yield_expr: 'yield' [testlist]
++yield_expr: 'yield' [yield_arg]
++yield_arg: 'from' test | testlist
+diff --git a/lib2to3/btm_matcher.py b/lib2to3/btm_matcher.py
+index 736ba2b..3b78868 100644
+--- a/lib2to3/btm_matcher.py
++++ b/lib2to3/btm_matcher.py
+@@ -104,7 +104,7 @@ class BottomMatcher(object):
+                 current_ast_node.was_checked = True
+                 for child in current_ast_node.children:
+                     # multiple statements, recheck
+-                    if isinstance(child, pytree.Leaf) and child.value == u";":
++                    if isinstance(child, pytree.Leaf) and child.value == ";":
+                         current_ast_node.was_checked = False
+                         break
+                 if current_ast_node.type == 1:
+@@ -117,10 +117,7 @@ class BottomMatcher(object):
+                     #token matches
+                     current_ac_node = current_ac_node.transition_table[node_token]
+                     for fixer in current_ac_node.fixers:
+-                        if not fixer in results:
+-                            results[fixer] = []
+                         results[fixer].append(current_ast_node)
+-
+                 else:
+                     #matching failed, reset automaton
+                     current_ac_node = self.root
+@@ -134,8 +131,6 @@ class BottomMatcher(object):
+                         #token matches
+                         current_ac_node = current_ac_node.transition_table[node_token]
+                         for fixer in current_ac_node.fixers:
+-                            if not fixer in results.keys():
+-                                results[fixer] = []
+                             results[fixer].append(current_ast_node)
+ 
+                 current_ast_node = current_ast_node.parent
+diff --git a/lib2to3/btm_utils.py b/lib2to3/btm_utils.py
+index 2276dc9..ff76ba3 100644
+--- a/lib2to3/btm_utils.py
++++ b/lib2to3/btm_utils.py
+@@ -96,8 +96,7 @@ class MinNode(object):
+     def leaves(self):
+         "Generator that returns the leaves of the tree"
+         for child in self.children:
+-            for x in child.leaves():
+-                yield x
++            yield from child.leaves()
+         if not self.children:
+             yield self
+ 
+@@ -216,7 +215,7 @@ def reduce_tree(node, parent=None):
+                 #reduce to None
+                 new_node = None
+             elif repeater_node.children[0].value == '+':
+-                #reduce to a single occurence i.e. do nothing
++                #reduce to a single occurrence i.e. do nothing
+                 pass
+             else:
+                 #TODO: handle {min, max} repeaters
+@@ -277,7 +276,6 @@ def rec_test(sequence, test_func):
+     sub-iterables"""
+     for x in sequence:
+         if isinstance(x, (list, tuple)):
+-            for y in rec_test(x, test_func):
+-                yield y
++            yield from rec_test(x, test_func)
+         else:
+             yield test_func(x)
+diff --git a/lib2to3/fixer_base.py b/lib2to3/fixer_base.py
+index f6421ba..df581a4 100644
+--- a/lib2to3/fixer_base.py
++++ b/lib2to3/fixer_base.py
+@@ -4,7 +4,6 @@
+ """Base class for fixers (optional, but recommended)."""
+ 
+ # Python imports
+-import logging
+ import itertools
+ 
+ # Local imports
+@@ -27,7 +26,6 @@ class BaseFix(object):
+     pattern_tree = None # Tree representation of the pattern
+     options = None  # Options object passed to initializer
+     filename = None # The filename (set by set_filename)
+-    logger = None   # A logger (set by set_filename)
+     numbers = itertools.count(1) # For new_name()
+     used_names = set() # A set of all used NAMEs
+     order = "post" # Does the fixer prefer pre- or post-order traversal
+@@ -50,7 +48,7 @@ class BaseFix(object):
+         """Initializer.  Subclass may override.
+ 
+         Args:
+-            options: an dict containing the options passed to RefactoringTool
++            options: a dict containing the options passed to RefactoringTool
+             that could be used to customize the fixer through the command line.
+             log: a list to append warnings and other messages to.
+         """
+@@ -70,12 +68,11 @@ class BaseFix(object):
+                                                                  with_tree=True)
+ 
+     def set_filename(self, filename):
+-        """Set the filename, and a logger derived from it.
++        """Set the filename.
+ 
+         The main refactoring tool should call this.
+         """
+         self.filename = filename
+-        self.logger = logging.getLogger(filename)
+ 
+     def match(self, node):
+         """Returns match for a given parse tree node.
+@@ -105,14 +102,14 @@ class BaseFix(object):
+         """
+         raise NotImplementedError()
+ 
+-    def new_name(self, template=u"xxx_todo_changeme"):
++    def new_name(self, template="xxx_todo_changeme"):
+         """Return a string suitable for use as an identifier
+ 
+         The new name is guaranteed not to conflict with other identifiers.
+         """
+         name = template
+         while name in self.used_names:
+-            name = template + unicode(self.numbers.next())
++            name = template + str(next(self.numbers))
+         self.used_names.add(name)
+         return name
+ 
+@@ -131,7 +128,7 @@ class BaseFix(object):
+         """
+         lineno = node.get_lineno()
+         for_output = node.clone()
+-        for_output.prefix = u""
++        for_output.prefix = ""
+         msg = "Line %d: could not convert: %s"
+         self.log_message(msg % (lineno, for_output))
+         if reason:
+diff --git a/lib2to3/fixer_util.py b/lib2to3/fixer_util.py
+index 30da893..babe6cb 100644
+--- a/lib2to3/fixer_util.py
++++ b/lib2to3/fixer_util.py
+@@ -1,8 +1,6 @@
+ """Utility functions, node construction macros, etc."""
+ # Author: Collin Winter
+ 
+-from itertools import islice
+-
+ # Local imports
+ from .pgen2 import token
+ from .pytree import Leaf, Node
+@@ -16,24 +14,24 @@ from . import patcomp
+ 
+ def KeywordArg(keyword, value):
+     return Node(syms.argument,
+-                [keyword, Leaf(token.EQUAL, u"="), value])
++                [keyword, Leaf(token.EQUAL, "="), value])
+ 
+ def LParen():
+-    return Leaf(token.LPAR, u"(")
++    return Leaf(token.LPAR, "(")
+ 
+ def RParen():
+-    return Leaf(token.RPAR, u")")
++    return Leaf(token.RPAR, ")")
+ 
+ def Assign(target, source):
+     """Build an assignment statement"""
+     if not isinstance(target, list):
+         target = [target]
+     if not isinstance(source, list):
+-        source.prefix = u" "
++        source.prefix = " "
+         source = [source]
+ 
+     return Node(syms.atom,
+-                target + [Leaf(token.EQUAL, u"=", prefix=u" ")] + source)
++                target + [Leaf(token.EQUAL, "=", prefix=" ")] + source)
+ 
+ def Name(name, prefix=None):
+     """Return a NAME leaf"""
+@@ -45,11 +43,11 @@ def Attr(obj, attr):
+ 
+ def Comma():
+     """A comma leaf"""
+-    return Leaf(token.COMMA, u",")
++    return Leaf(token.COMMA, ",")
+ 
+ def Dot():
+     """A period (.) leaf"""
+-    return Leaf(token.DOT, u".")
++    return Leaf(token.DOT, ".")
+ 
+ def ArgList(args, lparen=LParen(), rparen=RParen()):
+     """A parenthesised argument list, used by Call()"""
+@@ -67,20 +65,20 @@ def Call(func_name, args=None, prefix=None):
+ 
+ def Newline():
+     """A newline literal"""
+-    return Leaf(token.NEWLINE, u"\n")
++    return Leaf(token.NEWLINE, "\n")
+ 
+ def BlankLine():
+     """A blank line"""
+-    return Leaf(token.NEWLINE, u"")
++    return Leaf(token.NEWLINE, "")
+ 
+ def Number(n, prefix=None):
+     return Leaf(token.NUMBER, n, prefix=prefix)
+ 
+ def Subscript(index_node):
+     """A numeric or string subscript"""
+-    return Node(syms.trailer, [Leaf(token.LBRACE, u"["),
++    return Node(syms.trailer, [Leaf(token.LBRACE, "["),
+                                index_node,
+-                               Leaf(token.RBRACE, u"]")])
++                               Leaf(token.RBRACE, "]")])
+ 
+ def String(string, prefix=None):
+     """A string leaf"""
+@@ -91,24 +89,24 @@ def ListComp(xp, fp, it, test=None):
+ 
+     If test is None, the "if test" part is omitted.
+     """
+-    xp.prefix = u""
+-    fp.prefix = u" "
+-    it.prefix = u" "
+-    for_leaf = Leaf(token.NAME, u"for")
+-    for_leaf.prefix = u" "
+-    in_leaf = Leaf(token.NAME, u"in")
+-    in_leaf.prefix = u" "
++    xp.prefix = ""
++    fp.prefix = " "
++    it.prefix = " "
++    for_leaf = Leaf(token.NAME, "for")
++    for_leaf.prefix = " "
++    in_leaf = Leaf(token.NAME, "in")
++    in_leaf.prefix = " "
+     inner_args = [for_leaf, fp, in_leaf, it]
+     if test:
+-        test.prefix = u" "
+-        if_leaf = Leaf(token.NAME, u"if")
+-        if_leaf.prefix = u" "
++        test.prefix = " "
++        if_leaf = Leaf(token.NAME, "if")
++        if_leaf.prefix = " "
+         inner_args.append(Node(syms.comp_if, [if_leaf, test]))
+     inner = Node(syms.listmaker, [xp, Node(syms.comp_for, inner_args)])
+     return Node(syms.atom,
+-                       [Leaf(token.LBRACE, u"["),
++                       [Leaf(token.LBRACE, "["),
+                         inner,
+-                        Leaf(token.RBRACE, u"]")])
++                        Leaf(token.RBRACE, "]")])
+ 
+ def FromImport(package_name, name_leafs):
+     """ Return an import statement in the form:
+@@ -122,13 +120,36 @@ def FromImport(package_name, name_leafs):
+         # Pull the leaves out of their old tree
+         leaf.remove()
+ 
+-    children = [Leaf(token.NAME, u"from"),
+-                Leaf(token.NAME, package_name, prefix=u" "),
+-                Leaf(token.NAME, u"import", prefix=u" "),
++    children = [Leaf(token.NAME, "from"),
++                Leaf(token.NAME, package_name, prefix=" "),
++                Leaf(token.NAME, "import", prefix=" "),
+                 Node(syms.import_as_names, name_leafs)]
+     imp = Node(syms.import_from, children)
+     return imp
+ 
++def ImportAndCall(node, results, names):
++    """Returns an import statement and calls a method
++    of the module:
++
++    import module
++    module.name()"""
++    obj = results["obj"].clone()
++    if obj.type == syms.arglist:
++        newarglist = obj.clone()
++    else:
++        newarglist = Node(syms.arglist, [obj.clone()])
++    after = results["after"]
++    if after:
++        after = [n.clone() for n in after]
++    new = Node(syms.power,
++               Attr(Name(names[0]), Name(names[1])) +
++               [Node(syms.trailer,
++                     [results["lpar"].clone(),
++                      newarglist,
++                      results["rpar"].clone()])] + after)
++    new.prefix = node.prefix
++    return new
++
+ 
+ ###########################################################
+ ### Determine whether a node represents a given literal
+@@ -143,8 +164,8 @@ def is_tuple(node):
+             and isinstance(node.children[0], Leaf)
+             and isinstance(node.children[1], Node)
+             and isinstance(node.children[2], Leaf)
+-            and node.children[0].value == u"("
+-            and node.children[2].value == u")")
++            and node.children[0].value == "("
++            and node.children[2].value == ")")
+ 
+ def is_list(node):
+     """Does the node represent a list literal?"""
+@@ -152,8 +173,8 @@ def is_list(node):
+             and len(node.children) > 1
+             and isinstance(node.children[0], Leaf)
+             and isinstance(node.children[-1], Leaf)
+-            and node.children[0].value == u"["
+-            and node.children[-1].value == u"]")
++            and node.children[0].value == "["
++            and node.children[-1].value == "]")
+ 
+ 
+ ###########################################################
+@@ -164,8 +185,8 @@ def parenthesize(node):
+     return Node(syms.atom, [LParen(), node, RParen()])
+ 
+ 
+-consuming_calls = set(["sorted", "list", "set", "any", "all", "tuple", "sum",
+-                       "min", "max"])
++consuming_calls = {"sorted", "list", "set", "any", "all", "tuple", "sum",
++                   "min", "max", "enumerate"}
+ 
+ def attr_chain(obj, attr):
+     """Follow an attribute chain.
+@@ -192,14 +213,14 @@ p0 = """for_stmt< 'for' any 'in' node=any ':' any* >
+ p1 = """
+ power<
+     ( 'iter' | 'list' | 'tuple' | 'sorted' | 'set' | 'sum' |
+-      'any' | 'all' | (any* trailer< '.' 'join' >) )
++      'any' | 'all' | 'enumerate' | (any* trailer< '.' 'join' >) )
+     trailer< '(' node=any ')' >
+     any*
+ >
+ """
+ p2 = """
+ power<
+-    'sorted'
++    ( 'sorted' | 'enumerate' )
+     trailer< '(' arglist<node=any any*> ')' >
+     any*
+ >
+@@ -207,14 +228,14 @@ power<
+ pats_built = False
+ def in_special_context(node):
+     """ Returns true if node is in an environment where all that is required
+-        of it is being itterable (ie, it doesn't matter if it returns a list
+-        or an itterator).
++        of it is being iterable (ie, it doesn't matter if it returns a list
++        or an iterator).
+         See test_map_nochange in test_fixers.py for some examples and tests.
+         """
+     global p0, p1, p2, pats_built
+     if not pats_built:
+-        p1 = patcomp.compile_pattern(p1)
+         p0 = patcomp.compile_pattern(p0)
++        p1 = patcomp.compile_pattern(p1)
+         p2 = patcomp.compile_pattern(p2)
+         pats_built = True
+     patterns = [p0, p1, p2]
+@@ -255,7 +276,7 @@ def find_indentation(node):
+             if indent.type == token.INDENT:
+                 return indent.value
+         node = node.parent
+-    return u""
++    return ""
+ 
+ ###########################################################
+ ### The following functions are to find bindings in a suite
+@@ -274,9 +295,9 @@ def find_root(node):
+     """Find the top level namespace."""
+     # Scamper up to the top level namespace
+     while node.type != syms.file_input:
+-        assert node.parent, "Tree is insane! root found before "\
+-                           "file_input node was found."
+         node = node.parent
++        if not node:
++            raise ValueError("root found before file_input node was found.")
+     return node
+ 
+ def does_tree_import(package, name, node):
+@@ -326,17 +347,17 @@ def touch_import(package, name, node):
+ 
+     if package is None:
+         import_ = Node(syms.import_name, [
+-            Leaf(token.NAME, u"import"),
+-            Leaf(token.NAME, name, prefix=u" ")
++            Leaf(token.NAME, "import"),
++            Leaf(token.NAME, name, prefix=" ")
+         ])
+     else:
+-        import_ = FromImport(package, [Leaf(token.NAME, name, prefix=u" ")])
++        import_ = FromImport(package, [Leaf(token.NAME, name, prefix=" ")])
+ 
+     children = [import_, Newline()]
+     root.insert_child(insert_pos, Node(syms.simple_stmt, children))
+ 
+ 
+-_def_syms = set([syms.classdef, syms.funcdef])
++_def_syms = {syms.classdef, syms.funcdef}
+ def find_binding(name, node, package=None):
+     """ Returns the node which binds variable name, otherwise None.
+         If optional argument package is supplied, only imports will
+@@ -379,7 +400,7 @@ def find_binding(name, node, package=None):
+                 return ret
+     return None
+ 
+-_block_syms = set([syms.funcdef, syms.classdef, syms.trailer])
++_block_syms = {syms.funcdef, syms.classdef, syms.trailer}
+ def _find(name, node):
+     nodes = [node]
+     while nodes:
+@@ -411,12 +432,12 @@ def _is_import_binding(node, name, package=None):
+         elif imp.type == token.NAME and imp.value == name:
+             return node
+     elif node.type == syms.import_from:
+-        # unicode(...) is used to make life easier here, because
++        # str(...) is used to make life easier here, because
+         # from a.b import parses to ['import', ['a', '.', 'b'], ...]
+-        if package and unicode(node.children[1]).strip() != package:
++        if package and str(node.children[1]).strip() != package:
+             return None
+         n = node.children[3]
+-        if package and _find(u"as", n):
++        if package and _find("as", n):
+             # See test_from_import_as for explanation
+             return None
+         elif n.type == syms.import_as_names and _find(name, n):
+diff --git a/lib2to3/fixes/fix_apply.py b/lib2to3/fixes/fix_apply.py
+index a7dc3a0..6408582 100644
+--- a/lib2to3/fixes/fix_apply.py
++++ b/lib2to3/fixes/fix_apply.py
+@@ -34,6 +34,15 @@ class FixApply(fixer_base.BaseFix):
+         func = results["func"]
+         args = results["args"]
+         kwds = results.get("kwds")
++        # I feel like we should be able to express this logic in the
++        # PATTERN above but I don't know how to do it so...
++        if args:
++            if (args.type == self.syms.argument and
++                args.children[0].value in {'**', '*'}):
++                return  # Make no change.
++        if kwds and (kwds.type == self.syms.argument and
++                     kwds.children[0].value == '**'):
++            return  # Make no change.
+         prefix = node.prefix
+         func = func.clone()
+         if (func.type not in (token.NAME, syms.atom) and
+@@ -47,12 +56,12 @@ class FixApply(fixer_base.BaseFix):
+         if kwds is not None:
+             kwds = kwds.clone()
+             kwds.prefix = ""
+-        l_newargs = [pytree.Leaf(token.STAR, u"*"), args]
++        l_newargs = [pytree.Leaf(token.STAR, "*"), args]
+         if kwds is not None:
+             l_newargs.extend([Comma(),
+-                              pytree.Leaf(token.DOUBLESTAR, u"**"),
++                              pytree.Leaf(token.DOUBLESTAR, "**"),
+                               kwds])
+-            l_newargs[-2].prefix = u" " # that's the ** token
++            l_newargs[-2].prefix = " " # that's the ** token
+         # XXX Sometimes we could be cleverer, e.g. apply(f, (x, y) + t)
+         # can be translated into f(x, y, *t) instead of f(*(x, y) + t)
+         #new = pytree.Node(syms.power, (func, ArgList(l_newargs)))
+diff --git a/lib2to3/fixes/fix_basestring.py b/lib2to3/fixes/fix_basestring.py
+index a3c9a43..5fe69a0 100644
+--- a/lib2to3/fixes/fix_basestring.py
++++ b/lib2to3/fixes/fix_basestring.py
+@@ -11,4 +11,4 @@ class FixBasestring(fixer_base.BaseFix):
+     PATTERN = "'basestring'"
+ 
+     def transform(self, node, results):
+-        return Name(u"str", prefix=node.prefix)
++        return Name("str", prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_buffer.py b/lib2to3/fixes/fix_buffer.py
+index c6b0928..f9a1958 100644
+--- a/lib2to3/fixes/fix_buffer.py
++++ b/lib2to3/fixes/fix_buffer.py
+@@ -19,4 +19,4 @@ class FixBuffer(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         name = results["name"]
+-        name.replace(Name(u"memoryview", prefix=name.prefix))
++        name.replace(Name("memoryview", prefix=name.prefix))
+diff --git a/lib2to3/fixes/fix_callable.py b/lib2to3/fixes/fix_callable.py
+deleted file mode 100644
+index df33d61..0000000
+--- a/lib2to3/fixes/fix_callable.py
++++ /dev/null
+@@ -1,37 +0,0 @@
+-# Copyright 2007 Google, Inc. All Rights Reserved.
+-# Licensed to PSF under a Contributor Agreement.
+-
+-"""Fixer for callable().
+-
+-This converts callable(obj) into isinstance(obj, collections.Callable), adding a
+-collections import if needed."""
+-
+-# Local imports
+-from lib2to3 import fixer_base
+-from lib2to3.fixer_util import Call, Name, String, Attr, touch_import
+-
+-class FixCallable(fixer_base.BaseFix):
+-    BM_compatible = True
+-
+-    order = "pre"
+-
+-    # Ignore callable(*args) or use of keywords.
+-    # Either could be a hint that the builtin callable() is not being used.
+-    PATTERN = """
+-    power< 'callable'
+-           trailer< lpar='('
+-                    ( not(arglist | argument<any '=' any>) func=any
+-                      | func=arglist<(not argument<any '=' any>) any ','> )
+-                    rpar=')' >
+-           after=any*
+-    >
+-    """
+-
+-    def transform(self, node, results):
+-        func = results['func']
+-
+-        touch_import(None, u'collections', node=node)
+-
+-        args = [func.clone(), String(u', ')]
+-        args.extend(Attr(Name(u'collections'), Name(u'Callable')))
+-        return Call(Name(u'isinstance'), args, prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_dict.py b/lib2to3/fixes/fix_dict.py
+index f681e4d..d3655c9 100644
+--- a/lib2to3/fixes/fix_dict.py
++++ b/lib2to3/fixes/fix_dict.py
+@@ -30,13 +30,12 @@ as an argument to a function that introspects the argument).
+ # Local imports
+ from .. import pytree
+ from .. import patcomp
+-from ..pgen2 import token
+ from .. import fixer_base
+-from ..fixer_util import Name, Call, LParen, RParen, ArgList, Dot
++from ..fixer_util import Name, Call, Dot
+ from .. import fixer_util
+ 
+ 
+-iter_exempt = fixer_util.consuming_calls | set(["iter"])
++iter_exempt = fixer_util.consuming_calls | {"iter"}
+ 
+ 
+ class FixDict(fixer_base.BaseFix):
+@@ -58,11 +57,11 @@ class FixDict(fixer_base.BaseFix):
+         tail = results["tail"]
+         syms = self.syms
+         method_name = method.value
+-        isiter = method_name.startswith(u"iter")
+-        isview = method_name.startswith(u"view")
++        isiter = method_name.startswith("iter")
++        isview = method_name.startswith("view")
+         if isiter or isview:
+             method_name = method_name[4:]
+-        assert method_name in (u"keys", u"items", u"values"), repr(method)
++        assert method_name in ("keys", "items", "values"), repr(method)
+         head = [n.clone() for n in head]
+         tail = [n.clone() for n in tail]
+         special = not tail and self.in_special_context(node, isiter)
+@@ -73,8 +72,8 @@ class FixDict(fixer_base.BaseFix):
+                        results["parens"].clone()]
+         new = pytree.Node(syms.power, args)
+         if not (special or isview):
+-            new.prefix = u""
+-            new = Call(Name(u"iter" if isiter else u"list"), [new])
++            new.prefix = ""
++            new = Call(Name("iter" if isiter else "list"), [new])
+         if tail:
+             new = pytree.Node(syms.power, [new] + tail)
+         new.prefix = node.prefix
+diff --git a/lib2to3/fixes/fix_except.py b/lib2to3/fixes/fix_except.py
+index e324718..49bd3d5 100644
+--- a/lib2to3/fixes/fix_except.py
++++ b/lib2to3/fixes/fix_except.py
+@@ -30,7 +30,7 @@ from ..fixer_util import Assign, Attr, Name, is_tuple, is_list, syms
+ def find_excepts(nodes):
+     for i, n in enumerate(nodes):
+         if n.type == syms.except_clause:
+-            if n.children[0].value == u'except':
++            if n.children[0].value == 'except':
+                 yield (n, nodes[i+2])
+ 
+ class FixExcept(fixer_base.BaseFix):
+@@ -53,13 +53,13 @@ class FixExcept(fixer_base.BaseFix):
+         for except_clause, e_suite in find_excepts(try_cleanup):
+             if len(except_clause.children) == 4:
+                 (E, comma, N) = except_clause.children[1:4]
+-                comma.replace(Name(u"as", prefix=u" "))
++                comma.replace(Name("as", prefix=" "))
+ 
+                 if N.type != token.NAME:
+                     # Generate a new N for the except clause
+-                    new_N = Name(self.new_name(), prefix=u" ")
++                    new_N = Name(self.new_name(), prefix=" ")
+                     target = N.clone()
+-                    target.prefix = u""
++                    target.prefix = ""
+                     N.replace(new_N)
+                     new_N = new_N.clone()
+ 
+@@ -75,7 +75,7 @@ class FixExcept(fixer_base.BaseFix):
+                     # The assignment is different if old_N is a tuple or list
+                     # In that case, the assignment is old_N = new_N.args
+                     if is_tuple(N) or is_list(N):
+-                        assign = Assign(target, Attr(new_N, Name(u'args')))
++                        assign = Assign(target, Attr(new_N, Name('args')))
+                     else:
+                         assign = Assign(target, new_N)
+ 
+@@ -83,10 +83,10 @@ class FixExcept(fixer_base.BaseFix):
+                     for child in reversed(suite_stmts[:i]):
+                         e_suite.insert_child(0, child)
+                     e_suite.insert_child(i, assign)
+-                elif N.prefix == u"":
++                elif N.prefix == "":
+                     # No space after a comma is legal; no space after "as",
+                     # not so much.
+-                    N.prefix = u" "
++                    N.prefix = " "
+ 
+         #TODO(cwinter) fix this when children becomes a smart list
+         children = [c.clone() for c in node.children[:3]] + try_cleanup + tail
+diff --git a/lib2to3/fixes/fix_exec.py b/lib2to3/fixes/fix_exec.py
+index 50e1854..ab921ee 100644
+--- a/lib2to3/fixes/fix_exec.py
++++ b/lib2to3/fixes/fix_exec.py
+@@ -10,7 +10,6 @@ exec code in ns1, ns2 -> exec(code, ns1, ns2)
+ """
+ 
+ # Local imports
+-from .. import pytree
+ from .. import fixer_base
+ from ..fixer_util import Comma, Name, Call
+ 
+@@ -37,4 +36,4 @@ class FixExec(fixer_base.BaseFix):
+         if c is not None:
+             args.extend([Comma(), c.clone()])
+ 
+-        return Call(Name(u"exec"), args, prefix=node.prefix)
++        return Call(Name("exec"), args, prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_execfile.py b/lib2to3/fixes/fix_execfile.py
+index 2f29d3b..b6c786f 100644
+--- a/lib2to3/fixes/fix_execfile.py
++++ b/lib2to3/fixes/fix_execfile.py
+@@ -31,22 +31,23 @@ class FixExecfile(fixer_base.BaseFix):
+         # call.
+         execfile_paren = node.children[-1].children[-1].clone()
+         # Construct open().read().
+-        open_args = ArgList([filename.clone()], rparen=execfile_paren)
+-        open_call = Node(syms.power, [Name(u"open"), open_args])
+-        read = [Node(syms.trailer, [Dot(), Name(u'read')]),
++        open_args = ArgList([filename.clone(), Comma(), String('"rb"', ' ')],
++                            rparen=execfile_paren)
++        open_call = Node(syms.power, [Name("open"), open_args])
++        read = [Node(syms.trailer, [Dot(), Name('read')]),
+                 Node(syms.trailer, [LParen(), RParen()])]
+         open_expr = [open_call] + read
+         # Wrap the open call in a compile call. This is so the filename will be
+         # preserved in the execed code.
+         filename_arg = filename.clone()
+-        filename_arg.prefix = u" "
+-        exec_str = String(u"'exec'", u" ")
++        filename_arg.prefix = " "
++        exec_str = String("'exec'", " ")
+         compile_args = open_expr + [Comma(), filename_arg, Comma(), exec_str]
+-        compile_call = Call(Name(u"compile"), compile_args, u"")
++        compile_call = Call(Name("compile"), compile_args, "")
+         # Finally, replace the execfile call with an exec call.
+         args = [compile_call]
+         if globals is not None:
+             args.extend([Comma(), globals.clone()])
+         if locals is not None:
+             args.extend([Comma(), locals.clone()])
+-        return Call(Name(u"exec"), args, prefix=node.prefix)
++        return Call(Name("exec"), args, prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_exitfunc.py b/lib2to3/fixes/fix_exitfunc.py
+index 89fb3db..2e47887 100644
+--- a/lib2to3/fixes/fix_exitfunc.py
++++ b/lib2to3/fixes/fix_exitfunc.py
+@@ -35,16 +35,16 @@ class FixExitfunc(fixer_base.BaseFix):
+         self.sys_import = None
+ 
+     def transform(self, node, results):
+-        # First, find a the sys import. We'll just hope it's global scope.
++        # First, find the sys import. We'll just hope it's global scope.
+         if "sys_import" in results:
+             if self.sys_import is None:
+                 self.sys_import = results["sys_import"]
+             return
+ 
+         func = results["func"].clone()
+-        func.prefix = u""
++        func.prefix = ""
+         register = pytree.Node(syms.power,
+-                               Attr(Name(u"atexit"), Name(u"register"))
++                               Attr(Name("atexit"), Name("register"))
+                                )
+         call = Call(register, [func], node.prefix)
+         node.replace(call)
+@@ -59,13 +59,13 @@ class FixExitfunc(fixer_base.BaseFix):
+         names = self.sys_import.children[1]
+         if names.type == syms.dotted_as_names:
+             names.append_child(Comma())
+-            names.append_child(Name(u"atexit", u" "))
++            names.append_child(Name("atexit", " "))
+         else:
+             containing_stmt = self.sys_import.parent
+             position = containing_stmt.children.index(self.sys_import)
+             stmt_container = containing_stmt.parent
+             new_import = pytree.Node(syms.import_name,
+-                              [Name(u"import"), Name(u"atexit", u" ")]
++                              [Name("import"), Name("atexit", " ")]
+                               )
+             new = pytree.Node(syms.simple_stmt, [new_import])
+             containing_stmt.insert_child(position + 1, Newline())
+diff --git a/lib2to3/fixes/fix_filter.py b/lib2to3/fixes/fix_filter.py
+index 18ee2ff..38e9078 100644
+--- a/lib2to3/fixes/fix_filter.py
++++ b/lib2to3/fixes/fix_filter.py
+@@ -14,9 +14,11 @@ Python 2.6 figure it out.
+ """
+ 
+ # Local imports
+-from ..pgen2 import token
+ from .. import fixer_base
+-from ..fixer_util import Name, Call, ListComp, in_special_context
++from ..pytree import Node
++from ..pygram import python_symbols as syms
++from ..fixer_util import Name, ArgList, ListComp, in_special_context, parenthesize
++
+ 
+ class FixFilter(fixer_base.ConditionalFix):
+     BM_compatible = True
+@@ -35,16 +37,19 @@ class FixFilter(fixer_base.ConditionalFix):
+             >
+             ')'
+         >
++        [extra_trailers=trailer*]
+     >
+     |
+     power<
+         'filter'
+         trailer< '(' arglist< none='None' ',' seq=any > ')' >
++        [extra_trailers=trailer*]
+     >
+     |
+     power<
+         'filter'
+         args=trailer< '(' [any] ')' >
++        [extra_trailers=trailer*]
+     >
+     """
+ 
+@@ -54,23 +59,36 @@ class FixFilter(fixer_base.ConditionalFix):
+         if self.should_skip(node):
+             return
+ 
++        trailers = []
++        if 'extra_trailers' in results:
++            for t in results['extra_trailers']:
++                trailers.append(t.clone())
++
+         if "filter_lambda" in results:
++            xp = results.get("xp").clone()
++            if xp.type == syms.test:
++                xp.prefix = ""
++                xp = parenthesize(xp)
++
+             new = ListComp(results.get("fp").clone(),
+                            results.get("fp").clone(),
+-                           results.get("it").clone(),
+-                           results.get("xp").clone())
++                           results.get("it").clone(), xp)
++            new = Node(syms.power, [new] + trailers, prefix="")
+ 
+         elif "none" in results:
+-            new = ListComp(Name(u"_f"),
+-                           Name(u"_f"),
++            new = ListComp(Name("_f"),
++                           Name("_f"),
+                            results["seq"].clone(),
+-                           Name(u"_f"))
++                           Name("_f"))
++            new = Node(syms.power, [new] + trailers, prefix="")
+ 
+         else:
+             if in_special_context(node):
+                 return None
+-            new = node.clone()
+-            new.prefix = u""
+-            new = Call(Name(u"list"), [new])
++
++            args = results['args'].clone()
++            new = Node(syms.power, [Name("filter"), args], prefix="")
++            new = Node(syms.power, [Name("list"), ArgList([new])] + trailers)
++            new.prefix = ""
+         new.prefix = node.prefix
+         return new
+diff --git a/lib2to3/fixes/fix_funcattrs.py b/lib2to3/fixes/fix_funcattrs.py
+index 9e45c02..67f3e18 100644
+--- a/lib2to3/fixes/fix_funcattrs.py
++++ b/lib2to3/fixes/fix_funcattrs.py
+@@ -17,5 +17,5 @@ class FixFuncattrs(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         attr = results["attr"][0]
+-        attr.replace(Name((u"__%s__" % attr.value[5:]),
++        attr.replace(Name(("__%s__" % attr.value[5:]),
+                           prefix=attr.prefix))
+diff --git a/lib2to3/fixes/fix_getcwdu.py b/lib2to3/fixes/fix_getcwdu.py
+index 82233c8..087eaed 100644
+--- a/lib2to3/fixes/fix_getcwdu.py
++++ b/lib2to3/fixes/fix_getcwdu.py
+@@ -16,4 +16,4 @@ class FixGetcwdu(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         name = results["name"]
+-        name.replace(Name(u"getcwd", prefix=name.prefix))
++        name.replace(Name("getcwd", prefix=name.prefix))
+diff --git a/lib2to3/fixes/fix_has_key.py b/lib2to3/fixes/fix_has_key.py
+index bead4cb..439708c 100644
+--- a/lib2to3/fixes/fix_has_key.py
++++ b/lib2to3/fixes/fix_has_key.py
+@@ -31,7 +31,6 @@ CAVEATS:
+ 
+ # Local imports
+ from .. import pytree
+-from ..pgen2 import token
+ from .. import fixer_base
+ from ..fixer_util import Name, parenthesize
+ 
+@@ -92,10 +91,10 @@ class FixHasKey(fixer_base.BaseFix):
+             before = before[0]
+         else:
+             before = pytree.Node(syms.power, before)
+-        before.prefix = u" "
+-        n_op = Name(u"in", prefix=u" ")
++        before.prefix = " "
++        n_op = Name("in", prefix=" ")
+         if negation:
+-            n_not = Name(u"not", prefix=u" ")
++            n_not = Name("not", prefix=" ")
+             n_op = pytree.Node(syms.comp_op, (n_not, n_op))
+         new = pytree.Node(syms.comparison, (arg, n_op, before))
+         if after:
+diff --git a/lib2to3/fixes/fix_idioms.py b/lib2to3/fixes/fix_idioms.py
+index 37b6eef..6905913 100644
+--- a/lib2to3/fixes/fix_idioms.py
++++ b/lib2to3/fixes/fix_idioms.py
+@@ -100,18 +100,18 @@ class FixIdioms(fixer_base.BaseFix):
+     def transform_isinstance(self, node, results):
+         x = results["x"].clone() # The thing inside of type()
+         T = results["T"].clone() # The type being compared against
+-        x.prefix = u""
+-        T.prefix = u" "
+-        test = Call(Name(u"isinstance"), [x, Comma(), T])
++        x.prefix = ""
++        T.prefix = " "
++        test = Call(Name("isinstance"), [x, Comma(), T])
+         if "n" in results:
+-            test.prefix = u" "
+-            test = Node(syms.not_test, [Name(u"not"), test])
++            test.prefix = " "
++            test = Node(syms.not_test, [Name("not"), test])
+         test.prefix = node.prefix
+         return test
+ 
+     def transform_while(self, node, results):
+         one = results["while"]
+-        one.replace(Name(u"True", prefix=one.prefix))
++        one.replace(Name("True", prefix=one.prefix))
+ 
+     def transform_sort(self, node, results):
+         sort_stmt = results["sort"]
+@@ -120,11 +120,11 @@ class FixIdioms(fixer_base.BaseFix):
+         simple_expr = results.get("expr")
+ 
+         if list_call:
+-            list_call.replace(Name(u"sorted", prefix=list_call.prefix))
++            list_call.replace(Name("sorted", prefix=list_call.prefix))
+         elif simple_expr:
+             new = simple_expr.clone()
+-            new.prefix = u""
+-            simple_expr.replace(Call(Name(u"sorted"), [new],
++            new.prefix = ""
++            simple_expr.replace(Call(Name("sorted"), [new],
+                                      prefix=simple_expr.prefix))
+         else:
+             raise RuntimeError("should not have reached here")
+@@ -133,13 +133,13 @@ class FixIdioms(fixer_base.BaseFix):
+         btwn = sort_stmt.prefix
+         # Keep any prefix lines between the sort_stmt and the list_call and
+         # shove them right after the sorted() call.
+-        if u"\n" in btwn:
++        if "\n" in btwn:
+             if next_stmt:
+                 # The new prefix should be everything from the sort_stmt's
+                 # prefix up to the last newline, then the old prefix after a new
+                 # line.
+-                prefix_lines = (btwn.rpartition(u"\n")[0], next_stmt[0].prefix)
+-                next_stmt[0].prefix = u"\n".join(prefix_lines)
++                prefix_lines = (btwn.rpartition("\n")[0], next_stmt[0].prefix)
++                next_stmt[0].prefix = "\n".join(prefix_lines)
+             else:
+                 assert list_call.parent
+                 assert list_call.next_sibling is None
+@@ -149,4 +149,4 @@ class FixIdioms(fixer_base.BaseFix):
+                 assert list_call.next_sibling is end_line
+                 # The new prefix should be everything up to the first new line
+                 # of sort_stmt's prefix.
+-                end_line.prefix = btwn.rpartition(u"\n")[0]
++                end_line.prefix = btwn.rpartition("\n")[0]
+diff --git a/lib2to3/fixes/fix_import.py b/lib2to3/fixes/fix_import.py
+index 201e811..734ca29 100644
+--- a/lib2to3/fixes/fix_import.py
++++ b/lib2to3/fixes/fix_import.py
+@@ -32,7 +32,7 @@ def traverse_imports(names):
+         elif node.type == syms.dotted_as_names:
+             pending.extend(node.children[::-2])
+         else:
+-            raise AssertionError("unkown node type")
++            raise AssertionError("unknown node type")
+ 
+ 
+ class FixImport(fixer_base.BaseFix):
+@@ -61,7 +61,7 @@ class FixImport(fixer_base.BaseFix):
+             while not hasattr(imp, 'value'):
+                 imp = imp.children[0]
+             if self.probably_a_local_import(imp.value):
+-                imp.value = u"." + imp.value
++                imp.value = "." + imp.value
+                 imp.changed()
+         else:
+             have_local = False
+@@ -78,15 +78,15 @@ class FixImport(fixer_base.BaseFix):
+                     self.warning(node, "absolute and local imports together")
+                 return
+ 
+-            new = FromImport(u".", [imp])
++            new = FromImport(".", [imp])
+             new.prefix = node.prefix
+             return new
+ 
+     def probably_a_local_import(self, imp_name):
+-        if imp_name.startswith(u"."):
++        if imp_name.startswith("."):
+             # Relative imports are certainly not local imports.
+             return False
+-        imp_name = imp_name.split(u".", 1)[0]
++        imp_name = imp_name.split(".", 1)[0]
+         base_path = dirname(self.filename)
+         base_path = join(base_path, imp_name)
+         # If there is no __init__.py next to the file its not in a package
+diff --git a/lib2to3/fixes/fix_imports.py b/lib2to3/fixes/fix_imports.py
+index 93c9e67..aaf4f2f 100644
+--- a/lib2to3/fixes/fix_imports.py
++++ b/lib2to3/fixes/fix_imports.py
+@@ -123,7 +123,7 @@ class FixImports(fixer_base.BaseFix):
+         import_mod = results.get("module_name")
+         if import_mod:
+             mod_name = import_mod.value
+-            new_name = unicode(self.mapping[mod_name])
++            new_name = self.mapping[mod_name]
+             import_mod.replace(Name(new_name, prefix=import_mod.prefix))
+             if "name_import" in results:
+                 # If it's not a "from x import x, y" or "import x as y" import,
+diff --git a/lib2to3/fixes/fix_input.py b/lib2to3/fixes/fix_input.py
+index fbf4c72..9cf9a48 100644
+--- a/lib2to3/fixes/fix_input.py
++++ b/lib2to3/fixes/fix_input.py
+@@ -17,10 +17,10 @@ class FixInput(fixer_base.BaseFix):
+               """
+ 
+     def transform(self, node, results):
+-        # If we're already wrapped in a eval() call, we're done.
++        # If we're already wrapped in an eval() call, we're done.
+         if context.match(node.parent.parent):
+             return
+ 
+         new = node.clone()
+-        new.prefix = u""
+-        return Call(Name(u"eval"), [new], prefix=node.prefix)
++        new.prefix = ""
++        return Call(Name("eval"), [new], prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_intern.py b/lib2to3/fixes/fix_intern.py
+index e7bb505..d752843 100644
+--- a/lib2to3/fixes/fix_intern.py
++++ b/lib2to3/fixes/fix_intern.py
+@@ -6,9 +6,8 @@
+ intern(s) -> sys.intern(s)"""
+ 
+ # Local imports
+-from .. import pytree
+ from .. import fixer_base
+-from ..fixer_util import Name, Attr, touch_import
++from ..fixer_util import ImportAndCall, touch_import
+ 
+ 
+ class FixIntern(fixer_base.BaseFix):
+@@ -26,21 +25,15 @@ class FixIntern(fixer_base.BaseFix):
+     """
+ 
+     def transform(self, node, results):
+-        syms = self.syms
+-        obj = results["obj"].clone()
+-        if obj.type == syms.arglist:
+-            newarglist = obj.clone()
+-        else:
+-            newarglist = pytree.Node(syms.arglist, [obj.clone()])
+-        after = results["after"]
+-        if after:
+-            after = [n.clone() for n in after]
+-        new = pytree.Node(syms.power,
+-                          Attr(Name(u"sys"), Name(u"intern")) +
+-                          [pytree.Node(syms.trailer,
+-                                       [results["lpar"].clone(),
+-                                        newarglist,
+-                                        results["rpar"].clone()])] + after)
+-        new.prefix = node.prefix
+-        touch_import(None, u'sys', node)
++        if results:
++            # I feel like we should be able to express this logic in the
++            # PATTERN above but I don't know how to do it so...
++            obj = results['obj']
++            if obj:
++                if (obj.type == self.syms.argument and
++                    obj.children[0].value in {'**', '*'}):
++                    return  # Make no change.
++        names = ('sys', 'intern')
++        new = ImportAndCall(node, results, names)
++        touch_import(None, 'sys', node)
+         return new
+diff --git a/lib2to3/fixes/fix_isinstance.py b/lib2to3/fixes/fix_isinstance.py
+index 4b04c8f..bebb1de 100644
+--- a/lib2to3/fixes/fix_isinstance.py
++++ b/lib2to3/fixes/fix_isinstance.py
+@@ -35,7 +35,7 @@ class FixIsinstance(fixer_base.BaseFix):
+         for idx, arg in iterator:
+             if arg.type == token.NAME and arg.value in names_inserted:
+                 if idx < len(args) - 1 and args[idx + 1].type == token.COMMA:
+-                    iterator.next()
++                    next(iterator)
+                     continue
+             else:
+                 new_args.append(arg)
+diff --git a/lib2to3/fixes/fix_itertools.py b/lib2to3/fixes/fix_itertools.py
+index 27f8a49..8e78d6c 100644
+--- a/lib2to3/fixes/fix_itertools.py
++++ b/lib2to3/fixes/fix_itertools.py
+@@ -29,13 +29,13 @@ class FixItertools(fixer_base.BaseFix):
+         prefix = None
+         func = results['func'][0]
+         if ('it' in results and
+-            func.value not in (u'ifilterfalse', u'izip_longest')):
++            func.value not in ('ifilterfalse', 'izip_longest')):
+             dot, it = (results['dot'], results['it'])
+             # Remove the 'itertools'
+             prefix = it.prefix
+             it.remove()
+-            # Replace the node wich contains ('.', 'function') with the
+-            # function (to be consistant with the second part of the pattern)
++            # Replace the node which contains ('.', 'function') with the
++            # function (to be consistent with the second part of the pattern)
+             dot.remove()
+             func.parent.replace(func)
+ 
+diff --git a/lib2to3/fixes/fix_itertools_imports.py b/lib2to3/fixes/fix_itertools_imports.py
+index 28610cf..0ddbc7b 100644
+--- a/lib2to3/fixes/fix_itertools_imports.py
++++ b/lib2to3/fixes/fix_itertools_imports.py
+@@ -28,13 +28,13 @@ class FixItertoolsImports(fixer_base.BaseFix):
+                 assert child.type == syms.import_as_name
+                 name_node = child.children[0]
+             member_name = name_node.value
+-            if member_name in (u'imap', u'izip', u'ifilter'):
++            if member_name in ('imap', 'izip', 'ifilter'):
+                 child.value = None
+                 child.remove()
+-            elif member_name in (u'ifilterfalse', u'izip_longest'):
++            elif member_name in ('ifilterfalse', 'izip_longest'):
+                 node.changed()
+-                name_node.value = (u'filterfalse' if member_name[1] == u'f'
+-                                   else u'zip_longest')
++                name_node.value = ('filterfalse' if member_name[1] == 'f'
++                                   else 'zip_longest')
+ 
+         # Make sure the import statement is still sane
+         children = imports.children[:] or [imports]
+diff --git a/lib2to3/fixes/fix_long.py b/lib2to3/fixes/fix_long.py
+index 5dddde0..f227c9f 100644
+--- a/lib2to3/fixes/fix_long.py
++++ b/lib2to3/fixes/fix_long.py
+@@ -15,5 +15,5 @@ class FixLong(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         if is_probably_builtin(node):
+-            node.value = u"int"
++            node.value = "int"
+             node.changed()
+diff --git a/lib2to3/fixes/fix_map.py b/lib2to3/fixes/fix_map.py
+index 7a7d0db..78cf81c 100644
+--- a/lib2to3/fixes/fix_map.py
++++ b/lib2to3/fixes/fix_map.py
+@@ -22,8 +22,10 @@ soon as the shortest argument is exhausted.
+ # Local imports
+ from ..pgen2 import token
+ from .. import fixer_base
+-from ..fixer_util import Name, Call, ListComp, in_special_context
++from ..fixer_util import Name, ArgList, Call, ListComp, in_special_context
+ from ..pygram import python_symbols as syms
++from ..pytree import Node
++
+ 
+ class FixMap(fixer_base.ConditionalFix):
+     BM_compatible = True
+@@ -32,6 +34,7 @@ class FixMap(fixer_base.ConditionalFix):
+     map_none=power<
+         'map'
+         trailer< '(' arglist< 'None' ',' arg=any [','] > ')' >
++        [extra_trailers=trailer*]
+     >
+     |
+     map_lambda=power<
+@@ -47,10 +50,12 @@ class FixMap(fixer_base.ConditionalFix):
+             >
+             ')'
+         >
++        [extra_trailers=trailer*]
+     >
+     |
+     power<
+-        'map' trailer< '(' [arglist=any] ')' >
++        'map' args=trailer< '(' [any] ')' >
++        [extra_trailers=trailer*]
+     >
+     """
+ 
+@@ -60,32 +65,46 @@ class FixMap(fixer_base.ConditionalFix):
+         if self.should_skip(node):
+             return
+ 
++        trailers = []
++        if 'extra_trailers' in results:
++            for t in results['extra_trailers']:
++                trailers.append(t.clone())
++
+         if node.parent.type == syms.simple_stmt:
+             self.warning(node, "You should use a for loop here")
+             new = node.clone()
+-            new.prefix = u""
+-            new = Call(Name(u"list"), [new])
++            new.prefix = ""
++            new = Call(Name("list"), [new])
+         elif "map_lambda" in results:
+             new = ListComp(results["xp"].clone(),
+                            results["fp"].clone(),
+                            results["it"].clone())
++            new = Node(syms.power, [new] + trailers, prefix="")
++
+         else:
+             if "map_none" in results:
+                 new = results["arg"].clone()
++                new.prefix = ""
+             else:
+-                if "arglist" in results:
+-                    args = results["arglist"]
+-                    if args.type == syms.arglist and \
+-                       args.children[0].type == token.NAME and \
+-                       args.children[0].value == "None":
++                if "args" in results:
++                    args = results["args"]
++                    if args.type == syms.trailer and \
++                       args.children[1].type == syms.arglist and \
++                       args.children[1].children[0].type == token.NAME and \
++                       args.children[1].children[0].value == "None":
+                         self.warning(node, "cannot convert map(None, ...) "
+                                      "with multiple arguments because map() "
+                                      "now truncates to the shortest sequence")
+                         return
++
++                    new = Node(syms.power, [Name("map"), args.clone()])
++                    new.prefix = ""
++
+                 if in_special_context(node):
+                     return None
+-                new = node.clone()
+-            new.prefix = u""
+-            new = Call(Name(u"list"), [new])
++
++            new = Node(syms.power, [Name("list"), ArgList([new])] + trailers)
++            new.prefix = ""
++
+         new.prefix = node.prefix
+         return new
+diff --git a/lib2to3/fixes/fix_metaclass.py b/lib2to3/fixes/fix_metaclass.py
+index c86fbea..d1cd10d 100644
+--- a/lib2to3/fixes/fix_metaclass.py
++++ b/lib2to3/fixes/fix_metaclass.py
+@@ -1,6 +1,6 @@
+ """Fixer for __metaclass__ = X -> (metaclass=X) methods.
+ 
+-   The various forms of classef (inherits nothing, inherits once, inherints
++   The various forms of classef (inherits nothing, inherits once, inherits
+    many) don't parse the same in the CST so we look at ALL classes for
+    a __metaclass__ and if we find one normalize the inherits to all be
+    an arglist.
+@@ -20,12 +20,12 @@
+ # Local imports
+ from .. import fixer_base
+ from ..pygram import token
+-from ..fixer_util import Name, syms, Node, Leaf
++from ..fixer_util import syms, Node, Leaf
+ 
+ 
+ def has_metaclass(parent):
+     """ we have to check the cls_node without changing it.
+-        There are two possiblities:
++        There are two possibilities:
+           1)  clsdef => suite => simple_stmt => expr_stmt => Leaf('__meta')
+           2)  clsdef => simple_stmt => expr_stmt => Leaf('__meta')
+     """
+@@ -71,7 +71,7 @@ def fixup_parse_tree(cls_node):
+ def fixup_simple_stmt(parent, i, stmt_node):
+     """ if there is a semi-colon all the parts count as part of the same
+         simple_stmt.  We just want the __metaclass__ part so we move
+-        everything efter the semi-colon into its own simple_stmt node
++        everything after the semi-colon into its own simple_stmt node
+     """
+     for semi_ind, node in enumerate(stmt_node.children):
+         if node.type == token.SEMI: # *sigh*
+@@ -113,8 +113,8 @@ def find_metas(cls_node):
+                 # Check if the expr_node is a simple assignment.
+                 left_node = expr_node.children[0]
+                 if isinstance(left_node, Leaf) and \
+-                        left_node.value == u'__metaclass__':
+-                    # We found a assignment to __metaclass__.
++                        left_node.value == '__metaclass__':
++                    # We found an assignment to __metaclass__.
+                     fixup_simple_stmt(node, i, simple_node)
+                     remove_trailing_newline(simple_node)
+                     yield (node, i, simple_node)
+@@ -136,7 +136,7 @@ def fixup_indent(suite):
+         node = kids.pop()
+         if isinstance(node, Leaf) and node.type != token.DEDENT:
+             if node.prefix:
+-                node.prefix = u''
++                node.prefix = ''
+             return
+         else:
+             kids.extend(node.children[::-1])
+@@ -183,9 +183,9 @@ class FixMetaclass(fixer_base.BaseFix):
+             # Node(classdef, ['class', 'name', ':', suite])
+             #                 0        1       2    3
+             arglist = Node(syms.arglist, [])
+-            node.insert_child(2, Leaf(token.RPAR, u')'))
++            node.insert_child(2, Leaf(token.RPAR, ')'))
+             node.insert_child(2, arglist)
+-            node.insert_child(2, Leaf(token.LPAR, u'('))
++            node.insert_child(2, Leaf(token.LPAR, '('))
+         else:
+             raise ValueError("Unexpected class definition")
+ 
+@@ -195,16 +195,16 @@ class FixMetaclass(fixer_base.BaseFix):
+         orig_meta_prefix = meta_txt.prefix
+ 
+         if arglist.children:
+-            arglist.append_child(Leaf(token.COMMA, u','))
+-            meta_txt.prefix = u' '
++            arglist.append_child(Leaf(token.COMMA, ','))
++            meta_txt.prefix = ' '
+         else:
+-            meta_txt.prefix = u''
++            meta_txt.prefix = ''
+ 
+         # compact the expression "metaclass = Meta" -> "metaclass=Meta"
+         expr_stmt = last_metaclass.children[0]
+         assert expr_stmt.type == syms.expr_stmt
+-        expr_stmt.children[1].prefix = u''
+-        expr_stmt.children[2].prefix = u''
++        expr_stmt.children[1].prefix = ''
++        expr_stmt.children[2].prefix = ''
+ 
+         arglist.append_child(last_metaclass)
+ 
+@@ -214,15 +214,15 @@ class FixMetaclass(fixer_base.BaseFix):
+         if not suite.children:
+             # one-liner that was just __metaclass_
+             suite.remove()
+-            pass_leaf = Leaf(text_type, u'pass')
++            pass_leaf = Leaf(text_type, 'pass')
+             pass_leaf.prefix = orig_meta_prefix
+             node.append_child(pass_leaf)
+-            node.append_child(Leaf(token.NEWLINE, u'\n'))
++            node.append_child(Leaf(token.NEWLINE, '\n'))
+ 
+         elif len(suite.children) > 1 and \
+                  (suite.children[-2].type == token.INDENT and
+                   suite.children[-1].type == token.DEDENT):
+             # there was only one line in the class body and it was __metaclass__
+-            pass_leaf = Leaf(text_type, u'pass')
++            pass_leaf = Leaf(text_type, 'pass')
+             suite.insert_child(-1, pass_leaf)
+-            suite.insert_child(-1, Leaf(token.NEWLINE, u'\n'))
++            suite.insert_child(-1, Leaf(token.NEWLINE, '\n'))
+diff --git a/lib2to3/fixes/fix_methodattrs.py b/lib2to3/fixes/fix_methodattrs.py
+index f3c1ecf..7f9004f 100644
+--- a/lib2to3/fixes/fix_methodattrs.py
++++ b/lib2to3/fixes/fix_methodattrs.py
+@@ -20,5 +20,5 @@ class FixMethodattrs(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         attr = results["attr"][0]
+-        new = unicode(MAP[attr.value])
++        new = MAP[attr.value]
+         attr.replace(Name(new, prefix=attr.prefix))
+diff --git a/lib2to3/fixes/fix_ne.py b/lib2to3/fixes/fix_ne.py
+index 7025980..e3ee10f 100644
+--- a/lib2to3/fixes/fix_ne.py
++++ b/lib2to3/fixes/fix_ne.py
+@@ -16,8 +16,8 @@ class FixNe(fixer_base.BaseFix):
+ 
+     def match(self, node):
+         # Override
+-        return node.value == u"<>"
++        return node.value == "<>"
+ 
+     def transform(self, node, results):
+-        new = pytree.Leaf(token.NOTEQUAL, u"!=", prefix=node.prefix)
++        new = pytree.Leaf(token.NOTEQUAL, "!=", prefix=node.prefix)
+         return new
+diff --git a/lib2to3/fixes/fix_next.py b/lib2to3/fixes/fix_next.py
+index f021a9b..9f6305e 100644
+--- a/lib2to3/fixes/fix_next.py
++++ b/lib2to3/fixes/fix_next.py
+@@ -36,7 +36,7 @@ class FixNext(fixer_base.BaseFix):
+     def start_tree(self, tree, filename):
+         super(FixNext, self).start_tree(tree, filename)
+ 
+-        n = find_binding(u'next', tree)
++        n = find_binding('next', tree)
+         if n:
+             self.warning(n, bind_warning)
+             self.shadowed_next = True
+@@ -52,13 +52,13 @@ class FixNext(fixer_base.BaseFix):
+ 
+         if base:
+             if self.shadowed_next:
+-                attr.replace(Name(u"__next__", prefix=attr.prefix))
++                attr.replace(Name("__next__", prefix=attr.prefix))
+             else:
+                 base = [n.clone() for n in base]
+-                base[0].prefix = u""
+-                node.replace(Call(Name(u"next", prefix=node.prefix), base))
++                base[0].prefix = ""
++                node.replace(Call(Name("next", prefix=node.prefix), base))
+         elif name:
+-            n = Name(u"__next__", prefix=name.prefix)
++            n = Name("__next__", prefix=name.prefix)
+             name.replace(n)
+         elif attr:
+             # We don't do this transformation if we're assigning to "x.next".
+@@ -66,10 +66,10 @@ class FixNext(fixer_base.BaseFix):
+             #  so it's being done here.
+             if is_assign_target(node):
+                 head = results["head"]
+-                if "".join([str(n) for n in head]).strip() == u'__builtin__':
++                if "".join([str(n) for n in head]).strip() == '__builtin__':
+                     self.warning(node, bind_warning)
+                 return
+-            attr.replace(Name(u"__next__"))
++            attr.replace(Name("__next__"))
+         elif "global" in results:
+             self.warning(node, bind_warning)
+             self.shadowed_next = True
+diff --git a/lib2to3/fixes/fix_nonzero.py b/lib2to3/fixes/fix_nonzero.py
+index ba83478..c229596 100644
+--- a/lib2to3/fixes/fix_nonzero.py
++++ b/lib2to3/fixes/fix_nonzero.py
+@@ -3,7 +3,7 @@
+ 
+ # Local imports
+ from .. import fixer_base
+-from ..fixer_util import Name, syms
++from ..fixer_util import Name
+ 
+ class FixNonzero(fixer_base.BaseFix):
+     BM_compatible = True
+@@ -17,5 +17,5 @@ class FixNonzero(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         name = results["name"]
+-        new = Name(u"__bool__", prefix=name.prefix)
++        new = Name("__bool__", prefix=name.prefix)
+         name.replace(new)
+diff --git a/lib2to3/fixes/fix_numliterals.py b/lib2to3/fixes/fix_numliterals.py
+index b0c23f8..79207d4 100644
+--- a/lib2to3/fixes/fix_numliterals.py
++++ b/lib2to3/fixes/fix_numliterals.py
+@@ -16,13 +16,13 @@ class FixNumliterals(fixer_base.BaseFix):
+ 
+     def match(self, node):
+         # Override
+-        return (node.value.startswith(u"0") or node.value[-1] in u"Ll")
++        return (node.value.startswith("0") or node.value[-1] in "Ll")
+ 
+     def transform(self, node, results):
+         val = node.value
+-        if val[-1] in u'Ll':
++        if val[-1] in 'Ll':
+             val = val[:-1]
+-        elif val.startswith(u'0') and val.isdigit() and len(set(val)) > 1:
+-            val = u"0o" + val[1:]
++        elif val.startswith('0') and val.isdigit() and len(set(val)) > 1:
++            val = "0o" + val[1:]
+ 
+         return Number(val, prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_operator.py b/lib2to3/fixes/fix_operator.py
+index 7bf2c0d..d303cd2 100644
+--- a/lib2to3/fixes/fix_operator.py
++++ b/lib2to3/fixes/fix_operator.py
+@@ -1,14 +1,16 @@
+ """Fixer for operator functions.
+ 
+-operator.isCallable(obj)       -> hasattr(obj, '__call__')
++operator.isCallable(obj)       -> callable(obj)
+ operator.sequenceIncludes(obj) -> operator.contains(obj)
+-operator.isSequenceType(obj)   -> isinstance(obj, collections.Sequence)
+-operator.isMappingType(obj)    -> isinstance(obj, collections.Mapping)
++operator.isSequenceType(obj)   -> isinstance(obj, collections.abc.Sequence)
++operator.isMappingType(obj)    -> isinstance(obj, collections.abc.Mapping)
+ operator.isNumberType(obj)     -> isinstance(obj, numbers.Number)
+ operator.repeat(obj, n)        -> operator.mul(obj, n)
+ operator.irepeat(obj, n)       -> operator.imul(obj, n)
+ """
+ 
++import collections.abc
++
+ # Local imports
+ from lib2to3 import fixer_base
+ from lib2to3.fixer_util import Call, Name, String, touch_import
+@@ -45,33 +47,32 @@ class FixOperator(fixer_base.BaseFix):
+ 
+     @invocation("operator.contains(%s)")
+     def _sequenceIncludes(self, node, results):
+-        return self._handle_rename(node, results, u"contains")
++        return self._handle_rename(node, results, "contains")
+ 
+-    @invocation("hasattr(%s, '__call__')")
++    @invocation("callable(%s)")
+     def _isCallable(self, node, results):
+         obj = results["obj"]
+-        args = [obj.clone(), String(u", "), String(u"'__call__'")]
+-        return Call(Name(u"hasattr"), args, prefix=node.prefix)
++        return Call(Name("callable"), [obj.clone()], prefix=node.prefix)
+ 
+     @invocation("operator.mul(%s)")
+     def _repeat(self, node, results):
+-        return self._handle_rename(node, results, u"mul")
++        return self._handle_rename(node, results, "mul")
+ 
+     @invocation("operator.imul(%s)")
+     def _irepeat(self, node, results):
+-        return self._handle_rename(node, results, u"imul")
++        return self._handle_rename(node, results, "imul")
+ 
+-    @invocation("isinstance(%s, collections.Sequence)")
++    @invocation("isinstance(%s, collections.abc.Sequence)")
+     def _isSequenceType(self, node, results):
+-        return self._handle_type2abc(node, results, u"collections", u"Sequence")
++        return self._handle_type2abc(node, results, "collections.abc", "Sequence")
+ 
+-    @invocation("isinstance(%s, collections.Mapping)")
++    @invocation("isinstance(%s, collections.abc.Mapping)")
+     def _isMappingType(self, node, results):
+-        return self._handle_type2abc(node, results, u"collections", u"Mapping")
++        return self._handle_type2abc(node, results, "collections.abc", "Mapping")
+ 
+     @invocation("isinstance(%s, numbers.Number)")
+     def _isNumberType(self, node, results):
+-        return self._handle_type2abc(node, results, u"numbers", u"Number")
++        return self._handle_type2abc(node, results, "numbers", "Number")
+ 
+     def _handle_rename(self, node, results, name):
+         method = results["method"][0]
+@@ -81,16 +82,16 @@ class FixOperator(fixer_base.BaseFix):
+     def _handle_type2abc(self, node, results, module, abc):
+         touch_import(None, module, node)
+         obj = results["obj"]
+-        args = [obj.clone(), String(u", " + u".".join([module, abc]))]
+-        return Call(Name(u"isinstance"), args, prefix=node.prefix)
++        args = [obj.clone(), String(", " + ".".join([module, abc]))]
++        return Call(Name("isinstance"), args, prefix=node.prefix)
+ 
+     def _check_method(self, node, results):
+-        method = getattr(self, "_" + results["method"][0].value.encode("ascii"))
+-        if callable(method):
++        method = getattr(self, "_" + results["method"][0].value)
++        if isinstance(method, collections.abc.Callable):
+             if "module" in results:
+                 return method
+             else:
+-                sub = (unicode(results["obj"]),)
+-                invocation_str = unicode(method.invocation) % sub
+-                self.warning(node, u"You should use '%s' here." % invocation_str)
++                sub = (str(results["obj"]),)
++                invocation_str = method.invocation % sub
++                self.warning(node, "You should use '%s' here." % invocation_str)
+         return None
+diff --git a/lib2to3/fixes/fix_paren.py b/lib2to3/fixes/fix_paren.py
+index 8650cd9..b205aa7 100644
+--- a/lib2to3/fixes/fix_paren.py
++++ b/lib2to3/fixes/fix_paren.py
+@@ -39,6 +39,6 @@ class FixParen(fixer_base.BaseFix):
+ 
+         lparen = LParen()
+         lparen.prefix = target.prefix
+-        target.prefix = u"" # Make it hug the parentheses
++        target.prefix = "" # Make it hug the parentheses
+         target.insert_child(0, lparen)
+         target.append_child(RParen())
+diff --git a/lib2to3/fixes/fix_print.py b/lib2to3/fixes/fix_print.py
+index 98786b3..8780322 100644
+--- a/lib2to3/fixes/fix_print.py
++++ b/lib2to3/fixes/fix_print.py
+@@ -18,7 +18,7 @@ from .. import patcomp
+ from .. import pytree
+ from ..pgen2 import token
+ from .. import fixer_base
+-from ..fixer_util import Name, Call, Comma, String, is_tuple
++from ..fixer_util import Name, Call, Comma, String
+ 
+ 
+ parend_expr = patcomp.compile_pattern(
+@@ -41,10 +41,10 @@ class FixPrint(fixer_base.BaseFix):
+ 
+         if bare_print:
+             # Special-case print all by itself
+-            bare_print.replace(Call(Name(u"print"), [],
++            bare_print.replace(Call(Name("print"), [],
+                                prefix=bare_print.prefix))
+             return
+-        assert node.children[0] == Name(u"print")
++        assert node.children[0] == Name("print")
+         args = node.children[1:]
+         if len(args) == 1 and parend_expr.match(args[0]):
+             # We don't want to keep sticking parens around an
+@@ -55,33 +55,33 @@ class FixPrint(fixer_base.BaseFix):
+         if args and args[-1] == Comma():
+             args = args[:-1]
+             end = " "
+-        if args and args[0] == pytree.Leaf(token.RIGHTSHIFT, u">>"):
++        if args and args[0] == pytree.Leaf(token.RIGHTSHIFT, ">>"):
+             assert len(args) >= 2
+             file = args[1].clone()
+             args = args[3:] # Strip a possible comma after the file expression
+         # Now synthesize a print(args, sep=..., end=..., file=...) node.
+         l_args = [arg.clone() for arg in args]
+         if l_args:
+-            l_args[0].prefix = u""
++            l_args[0].prefix = ""
+         if sep is not None or end is not None or file is not None:
+             if sep is not None:
+-                self.add_kwarg(l_args, u"sep", String(repr(sep)))
++                self.add_kwarg(l_args, "sep", String(repr(sep)))
+             if end is not None:
+-                self.add_kwarg(l_args, u"end", String(repr(end)))
++                self.add_kwarg(l_args, "end", String(repr(end)))
+             if file is not None:
+-                self.add_kwarg(l_args, u"file", file)
+-        n_stmt = Call(Name(u"print"), l_args)
++                self.add_kwarg(l_args, "file", file)
++        n_stmt = Call(Name("print"), l_args)
+         n_stmt.prefix = node.prefix
+         return n_stmt
+ 
+     def add_kwarg(self, l_nodes, s_kwd, n_expr):
+         # XXX All this prefix-setting may lose comments (though rarely)
+-        n_expr.prefix = u""
++        n_expr.prefix = ""
+         n_argument = pytree.Node(self.syms.argument,
+                                  (Name(s_kwd),
+-                                  pytree.Leaf(token.EQUAL, u"="),
++                                  pytree.Leaf(token.EQUAL, "="),
+                                   n_expr))
+         if l_nodes:
+             l_nodes.append(Comma())
+-            n_argument.prefix = u" "
++            n_argument.prefix = " "
+         l_nodes.append(n_argument)
+diff --git a/lib2to3/fixes/fix_raise.py b/lib2to3/fixes/fix_raise.py
+index b958ba0..05aa21e 100644
+--- a/lib2to3/fixes/fix_raise.py
++++ b/lib2to3/fixes/fix_raise.py
+@@ -55,11 +55,11 @@ class FixRaise(fixer_base.BaseFix):
+                 # exc.children[1:-1] is the unparenthesized tuple
+                 # exc.children[1].children[0] is the first element of the tuple
+                 exc = exc.children[1].children[0].clone()
+-            exc.prefix = u" "
++            exc.prefix = " "
+ 
+         if "val" not in results:
+             # One-argument raise
+-            new = pytree.Node(syms.raise_stmt, [Name(u"raise"), exc])
++            new = pytree.Node(syms.raise_stmt, [Name("raise"), exc])
+             new.prefix = node.prefix
+             return new
+ 
+@@ -67,24 +67,24 @@ class FixRaise(fixer_base.BaseFix):
+         if is_tuple(val):
+             args = [c.clone() for c in val.children[1:-1]]
+         else:
+-            val.prefix = u""
++            val.prefix = ""
+             args = [val]
+ 
+         if "tb" in results:
+             tb = results["tb"].clone()
+-            tb.prefix = u""
++            tb.prefix = ""
+ 
+             e = exc
+             # If there's a traceback and None is passed as the value, then don't
+             # add a call, since the user probably just wants to add a
+             # traceback. See issue #9661.
+-            if val.type != token.NAME or val.value != u"None":
++            if val.type != token.NAME or val.value != "None":
+                 e = Call(exc, args)
+-            with_tb = Attr(e, Name(u'with_traceback')) + [ArgList([tb])]
+-            new = pytree.Node(syms.simple_stmt, [Name(u"raise")] + with_tb)
++            with_tb = Attr(e, Name('with_traceback')) + [ArgList([tb])]
++            new = pytree.Node(syms.simple_stmt, [Name("raise")] + with_tb)
+             new.prefix = node.prefix
+             return new
+         else:
+             return pytree.Node(syms.raise_stmt,
+-                               [Name(u"raise"), Call(exc, args)],
++                               [Name("raise"), Call(exc, args)],
+                                prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_raw_input.py b/lib2to3/fixes/fix_raw_input.py
+index 3a73b81..a51bb69 100644
+--- a/lib2to3/fixes/fix_raw_input.py
++++ b/lib2to3/fixes/fix_raw_input.py
+@@ -14,4 +14,4 @@ class FixRawInput(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         name = results["name"]
+-        name.replace(Name(u"input", prefix=name.prefix))
++        name.replace(Name("input", prefix=name.prefix))
+diff --git a/lib2to3/fixes/fix_reduce.py b/lib2to3/fixes/fix_reduce.py
+index 6bd785c..00e5aa1 100644
+--- a/lib2to3/fixes/fix_reduce.py
++++ b/lib2to3/fixes/fix_reduce.py
+@@ -32,4 +32,4 @@ class FixReduce(fixer_base.BaseFix):
+     """
+ 
+     def transform(self, node, results):
+-        touch_import(u'functools', u'reduce', node)
++        touch_import('functools', 'reduce', node)
+diff --git a/lib2to3/fixes/fix_renames.py b/lib2to3/fixes/fix_renames.py
+index 4bcce8c..c0e3705 100644
+--- a/lib2to3/fixes/fix_renames.py
++++ b/lib2to3/fixes/fix_renames.py
+@@ -20,8 +20,8 @@ def alternates(members):
+ 
+ def build_pattern():
+     #bare = set()
+-    for module, replace in MAPPING.items():
+-        for old_attr, new_attr in replace.items():
++    for module, replace in list(MAPPING.items()):
++        for old_attr, new_attr in list(replace.items()):
+             LOOKUP[(module, old_attr)] = new_attr
+             #bare.add(module)
+             #bare.add(old_attr)
+@@ -66,5 +66,5 @@ class FixRenames(fixer_base.BaseFix):
+         #import_mod = results.get("module")
+ 
+         if mod_name and attr_name:
+-            new_attr = unicode(LOOKUP[(mod_name.value, attr_name.value)])
++            new_attr = LOOKUP[(mod_name.value, attr_name.value)]
+             attr_name.replace(Name(new_attr, prefix=attr_name.prefix))
+diff --git a/lib2to3/fixes/fix_repr.py b/lib2to3/fixes/fix_repr.py
+index f343656..1150bb8 100644
+--- a/lib2to3/fixes/fix_repr.py
++++ b/lib2to3/fixes/fix_repr.py
+@@ -20,4 +20,4 @@ class FixRepr(fixer_base.BaseFix):
+ 
+         if expr.type == self.syms.testlist1:
+             expr = parenthesize(expr)
+-        return Call(Name(u"repr"), [expr], prefix=node.prefix)
++        return Call(Name("repr"), [expr], prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_set_literal.py b/lib2to3/fixes/fix_set_literal.py
+index d3d38ec..762550c 100644
+--- a/lib2to3/fixes/fix_set_literal.py
++++ b/lib2to3/fixes/fix_set_literal.py
+@@ -35,9 +35,9 @@ class FixSetLiteral(fixer_base.BaseFix):
+             items = results["items"]
+ 
+         # Build the contents of the literal
+-        literal = [pytree.Leaf(token.LBRACE, u"{")]
++        literal = [pytree.Leaf(token.LBRACE, "{")]
+         literal.extend(n.clone() for n in items.children)
+-        literal.append(pytree.Leaf(token.RBRACE, u"}"))
++        literal.append(pytree.Leaf(token.RBRACE, "}"))
+         # Set the prefix of the right brace to that of the ')' or ']'
+         literal[-1].prefix = items.next_sibling.prefix
+         maker = pytree.Node(syms.dictsetmaker, literal)
+diff --git a/lib2to3/fixes/fix_standarderror.py b/lib2to3/fixes/fix_standarderror.py
+index 6cad511..dc74216 100644
+--- a/lib2to3/fixes/fix_standarderror.py
++++ b/lib2to3/fixes/fix_standarderror.py
+@@ -15,4 +15,4 @@ class FixStandarderror(fixer_base.BaseFix):
+               """
+ 
+     def transform(self, node, results):
+-        return Name(u"Exception", prefix=node.prefix)
++        return Name("Exception", prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_sys_exc.py b/lib2to3/fixes/fix_sys_exc.py
+index 2ecca2b..f603969 100644
+--- a/lib2to3/fixes/fix_sys_exc.py
++++ b/lib2to3/fixes/fix_sys_exc.py
+@@ -13,7 +13,7 @@ from ..fixer_util import Attr, Call, Name, Number, Subscript, Node, syms
+ 
+ class FixSysExc(fixer_base.BaseFix):
+     # This order matches the ordering of sys.exc_info().
+-    exc_info = [u"exc_type", u"exc_value", u"exc_traceback"]
++    exc_info = ["exc_type", "exc_value", "exc_traceback"]
+     BM_compatible = True
+     PATTERN = """
+               power< 'sys' trailer< dot='.' attribute=(%s) > >
+@@ -23,8 +23,8 @@ class FixSysExc(fixer_base.BaseFix):
+         sys_attr = results["attribute"][0]
+         index = Number(self.exc_info.index(sys_attr.value))
+ 
+-        call = Call(Name(u"exc_info"), prefix=sys_attr.prefix)
+-        attr = Attr(Name(u"sys"), call)
++        call = Call(Name("exc_info"), prefix=sys_attr.prefix)
++        attr = Attr(Name("sys"), call)
+         attr[1].children[0].prefix = results["dot"].prefix
+         attr.append(Subscript(index))
+         return Node(syms.power, attr, prefix=node.prefix)
+diff --git a/lib2to3/fixes/fix_throw.py b/lib2to3/fixes/fix_throw.py
+index 1468d89..aac2916 100644
+--- a/lib2to3/fixes/fix_throw.py
++++ b/lib2to3/fixes/fix_throw.py
+@@ -32,7 +32,7 @@ class FixThrow(fixer_base.BaseFix):
+             return
+ 
+         # Leave "g.throw(E)" alone
+-        val = results.get(u"val")
++        val = results.get("val")
+         if val is None:
+             return
+ 
+@@ -40,17 +40,17 @@ class FixThrow(fixer_base.BaseFix):
+         if is_tuple(val):
+             args = [c.clone() for c in val.children[1:-1]]
+         else:
+-            val.prefix = u""
++            val.prefix = ""
+             args = [val]
+ 
+         throw_args = results["args"]
+ 
+         if "tb" in results:
+             tb = results["tb"].clone()
+-            tb.prefix = u""
++            tb.prefix = ""
+ 
+             e = Call(exc, args)
+-            with_tb = Attr(e, Name(u'with_traceback')) + [ArgList([tb])]
++            with_tb = Attr(e, Name('with_traceback')) + [ArgList([tb])]
+             throw_args.replace(pytree.Node(syms.power, with_tb))
+         else:
+             throw_args.replace(Call(exc, args))
+diff --git a/lib2to3/fixes/fix_tuple_params.py b/lib2to3/fixes/fix_tuple_params.py
+index 6361717..cad755f 100644
+--- a/lib2to3/fixes/fix_tuple_params.py
++++ b/lib2to3/fixes/fix_tuple_params.py
+@@ -58,8 +58,8 @@ class FixTupleParams(fixer_base.BaseFix):
+             end = Newline()
+         else:
+             start = 0
+-            indent = u"; "
+-            end = pytree.Leaf(token.INDENT, u"")
++            indent = "; "
++            end = pytree.Leaf(token.INDENT, "")
+ 
+         # We need access to self for new_name(), and making this a method
+         #  doesn't feel right. Closing over self and new_lines makes the
+@@ -67,10 +67,10 @@ class FixTupleParams(fixer_base.BaseFix):
+         def handle_tuple(tuple_arg, add_prefix=False):
+             n = Name(self.new_name())
+             arg = tuple_arg.clone()
+-            arg.prefix = u""
++            arg.prefix = ""
+             stmt = Assign(arg, n.clone())
+             if add_prefix:
+-                n.prefix = u" "
++                n.prefix = " "
+             tuple_arg.replace(n)
+             new_lines.append(pytree.Node(syms.simple_stmt,
+                                          [stmt, end.clone()]))
+@@ -95,7 +95,7 @@ class FixTupleParams(fixer_base.BaseFix):
+         # TODO(cwinter) suite-cleanup
+         after = start
+         if start == 0:
+-            new_lines[0].prefix = u" "
++            new_lines[0].prefix = " "
+         elif is_docstring(suite[0].children[start]):
+             new_lines[0].prefix = indent
+             after = start + 1
+@@ -115,7 +115,7 @@ class FixTupleParams(fixer_base.BaseFix):
+         # Replace lambda ((((x)))): x  with lambda x: x
+         if inner.type == token.NAME:
+             inner = inner.clone()
+-            inner.prefix = u" "
++            inner.prefix = " "
+             args.replace(inner)
+             return
+ 
+@@ -123,7 +123,7 @@ class FixTupleParams(fixer_base.BaseFix):
+         to_index = map_to_index(params)
+         tup_name = self.new_name(tuple_name(params))
+ 
+-        new_param = Name(tup_name, prefix=u" ")
++        new_param = Name(tup_name, prefix=" ")
+         args.replace(new_param.clone())
+         for n in body.post_order():
+             if n.type == token.NAME and n.value in to_index:
+@@ -158,7 +158,7 @@ def map_to_index(param_list, prefix=[], d=None):
+     if d is None:
+         d = {}
+     for i, obj in enumerate(param_list):
+-        trailer = [Subscript(Number(unicode(i)))]
++        trailer = [Subscript(Number(str(i)))]
+         if isinstance(obj, list):
+             map_to_index(obj, trailer, d=d)
+         else:
+@@ -172,4 +172,4 @@ def tuple_name(param_list):
+             l.append(tuple_name(obj))
+         else:
+             l.append(obj)
+-    return u"_".join(l)
++    return "_".join(l)
+diff --git a/lib2to3/fixes/fix_types.py b/lib2to3/fixes/fix_types.py
+index fc9d495..67bf51f 100644
+--- a/lib2to3/fixes/fix_types.py
++++ b/lib2to3/fixes/fix_types.py
+@@ -20,7 +20,6 @@ There should be another fixer that handles at least the following constants:
+ """
+ 
+ # Local imports
+-from ..pgen2 import token
+ from .. import fixer_base
+ from ..fixer_util import Name
+ 
+@@ -42,7 +41,7 @@ _TYPE_MAPPING = {
+         'NotImplementedType' : 'type(NotImplemented)',
+         'SliceType' : 'slice',
+         'StringType': 'bytes', # XXX ?
+-        'StringTypes' : 'str', # XXX ?
++        'StringTypes' : '(str,)', # XXX ?
+         'TupleType': 'tuple',
+         'TypeType' : 'type',
+         'UnicodeType': 'str',
+@@ -56,7 +55,7 @@ class FixTypes(fixer_base.BaseFix):
+     PATTERN = '|'.join(_pats)
+ 
+     def transform(self, node, results):
+-        new_value = unicode(_TYPE_MAPPING.get(results["name"].value))
++        new_value = _TYPE_MAPPING.get(results["name"].value)
+         if new_value:
+             return Name(new_value, prefix=node.prefix)
+         return None
+diff --git a/lib2to3/fixes/fix_unicode.py b/lib2to3/fixes/fix_unicode.py
+index 6c89576..c7982c2 100644
+--- a/lib2to3/fixes/fix_unicode.py
++++ b/lib2to3/fixes/fix_unicode.py
+@@ -1,25 +1,42 @@
+-"""Fixer that changes unicode to str, unichr to chr, and u"..." into "...".
++r"""Fixer for unicode.
++
++* Changes unicode to str and unichr to chr.
++
++* If "...\u..." is not unicode literal change it into "...\\u...".
++
++* Change u"..." into "...".
+ 
+ """
+ 
+-import re
+ from ..pgen2 import token
+ from .. import fixer_base
+ 
+-_mapping = {u"unichr" : u"chr", u"unicode" : u"str"}
+-_literal_re = re.compile(ur"[uU][rR]?[\'\"]")
++_mapping = {"unichr" : "chr", "unicode" : "str"}
+ 
+ class FixUnicode(fixer_base.BaseFix):
+     BM_compatible = True
+     PATTERN = "STRING | 'unicode' | 'unichr'"
+ 
++    def start_tree(self, tree, filename):
++        super(FixUnicode, self).start_tree(tree, filename)
++        self.unicode_literals = 'unicode_literals' in tree.future_features
++
+     def transform(self, node, results):
+         if node.type == token.NAME:
+             new = node.clone()
+             new.value = _mapping[node.value]
+             return new
+         elif node.type == token.STRING:
+-            if _literal_re.match(node.value):
+-                new = node.clone()
+-                new.value = new.value[1:]
+-                return new
++            val = node.value
++            if not self.unicode_literals and val[0] in '\'"' and '\\' in val:
++                val = r'\\'.join([
++                    v.replace('\\u', r'\\u').replace('\\U', r'\\U')
++                    for v in val.split(r'\\')
++                ])
++            if val[0] in 'uU':
++                val = val[1:]
++            if val == node.value:
++                return node
++            new = node.clone()
++            new.value = val
++            return new
+diff --git a/lib2to3/fixes/fix_urllib.py b/lib2to3/fixes/fix_urllib.py
+index 34e1b27..5a36049 100644
+--- a/lib2to3/fixes/fix_urllib.py
++++ b/lib2to3/fixes/fix_urllib.py
+@@ -6,7 +6,6 @@
+ 
+ # Local imports
+ from lib2to3.fixes.fix_imports import alternates, FixImports
+-from lib2to3 import fixer_base
+ from lib2to3.fixer_util import (Name, Comma, FromImport, Newline,
+                                 find_indentation, Node, syms)
+ 
+@@ -128,7 +127,7 @@ class FixUrllib(FixImports):
+                 else:
+                     member_name = member.value
+                     as_name = None
+-                if member_name != u",":
++                if member_name != ",":
+                     for change in MAPPING[mod_member.value]:
+                         if member_name in change[1]:
+                             if change[0] not in mod_dict:
+diff --git a/lib2to3/fixes/fix_ws_comma.py b/lib2to3/fixes/fix_ws_comma.py
+index 37ff624..a54a376 100644
+--- a/lib2to3/fixes/fix_ws_comma.py
++++ b/lib2to3/fixes/fix_ws_comma.py
+@@ -17,8 +17,8 @@ class FixWsComma(fixer_base.BaseFix):
+     any<(not(',') any)+ ',' ((not(',') any)+ ',')* [not(',') any]>
+     """
+ 
+-    COMMA = pytree.Leaf(token.COMMA, u",")
+-    COLON = pytree.Leaf(token.COLON, u":")
++    COMMA = pytree.Leaf(token.COMMA, ",")
++    COLON = pytree.Leaf(token.COLON, ":")
+     SEPS = (COMMA, COLON)
+ 
+     def transform(self, node, results):
+@@ -27,13 +27,13 @@ class FixWsComma(fixer_base.BaseFix):
+         for child in new.children:
+             if child in self.SEPS:
+                 prefix = child.prefix
+-                if prefix.isspace() and u"\n" not in prefix:
+-                    child.prefix = u""
++                if prefix.isspace() and "\n" not in prefix:
++                    child.prefix = ""
+                 comma = True
+             else:
+                 if comma:
+                     prefix = child.prefix
+                     if not prefix:
+-                        child.prefix = u" "
++                        child.prefix = " "
+                 comma = False
+         return new
+diff --git a/lib2to3/fixes/fix_xrange.py b/lib2to3/fixes/fix_xrange.py
+index f143672..1e491e1 100644
+--- a/lib2to3/fixes/fix_xrange.py
++++ b/lib2to3/fixes/fix_xrange.py
+@@ -26,25 +26,25 @@ class FixXrange(fixer_base.BaseFix):
+ 
+     def transform(self, node, results):
+         name = results["name"]
+-        if name.value == u"xrange":
++        if name.value == "xrange":
+             return self.transform_xrange(node, results)
+-        elif name.value == u"range":
++        elif name.value == "range":
+             return self.transform_range(node, results)
+         else:
+             raise ValueError(repr(name))
+ 
+     def transform_xrange(self, node, results):
+         name = results["name"]
+-        name.replace(Name(u"range", prefix=name.prefix))
++        name.replace(Name("range", prefix=name.prefix))
+         # This prevents the new range call from being wrapped in a list later.
+         self.transformed_xranges.add(id(node))
+ 
+     def transform_range(self, node, results):
+         if (id(node) not in self.transformed_xranges and
+             not self.in_special_context(node)):
+-            range_call = Call(Name(u"range"), [results["args"].clone()])
++            range_call = Call(Name("range"), [results["args"].clone()])
+             # Encase the range call in list().
+-            list_call = Call(Name(u"list"), [range_call],
++            list_call = Call(Name("list"), [range_call],
+                              prefix=node.prefix)
+             # Put things that were after the range() call after the list call.
+             for n in results["rest"]:
+diff --git a/lib2to3/fixes/fix_xreadlines.py b/lib2to3/fixes/fix_xreadlines.py
+index f50b9a2..3e3f71a 100644
+--- a/lib2to3/fixes/fix_xreadlines.py
++++ b/lib2to3/fixes/fix_xreadlines.py
+@@ -20,6 +20,6 @@ class FixXreadlines(fixer_base.BaseFix):
+         no_call = results.get("no_call")
+ 
+         if no_call:
+-            no_call.replace(Name(u"__iter__", prefix=no_call.prefix))
++            no_call.replace(Name("__iter__", prefix=no_call.prefix))
+         else:
+             node.replace([x.clone() for x in results["call"]])
+diff --git a/lib2to3/fixes/fix_zip.py b/lib2to3/fixes/fix_zip.py
+index c5d7b66..52c28df 100644
+--- a/lib2to3/fixes/fix_zip.py
++++ b/lib2to3/fixes/fix_zip.py
+@@ -9,13 +9,16 @@ iter(<>), list(<>), tuple(<>), sorted(<>), ...join(<>), or for V in <>:.
+ 
+ # Local imports
+ from .. import fixer_base
+-from ..fixer_util import Name, Call, in_special_context
++from ..pytree import Node
++from ..pygram import python_symbols as syms
++from ..fixer_util import Name, ArgList, in_special_context
++
+ 
+ class FixZip(fixer_base.ConditionalFix):
+ 
+     BM_compatible = True
+     PATTERN = """
+-    power< 'zip' args=trailer< '(' [any] ')' >
++    power< 'zip' args=trailer< '(' [any] ')' > [trailers=trailer*]
+     >
+     """
+ 
+@@ -28,8 +31,16 @@ class FixZip(fixer_base.ConditionalFix):
+         if in_special_context(node):
+             return None
+ 
+-        new = node.clone()
+-        new.prefix = u""
+-        new = Call(Name(u"list"), [new])
++        args = results['args'].clone()
++        args.prefix = ""
++
++        trailers = []
++        if 'trailers' in results:
++            trailers = [n.clone() for n in results['trailers']]
++            for n in trailers:
++                n.prefix = ""
++
++        new = Node(syms.power, [Name("zip"), args], prefix="")
++        new = Node(syms.power, [Name("list"), ArgList([new])] + trailers)
+         new.prefix = node.prefix
+         return new
+diff --git a/lib2to3/main.py b/lib2to3/main.py
+index 3929db7..d6b7088 100644
+--- a/lib2to3/main.py
++++ b/lib2to3/main.py
+@@ -2,7 +2,7 @@
+ Main program for 2to3.
+ """
+ 
+-from __future__ import with_statement
++from __future__ import with_statement, print_function
+ 
+ import sys
+ import os
+@@ -25,12 +25,41 @@ def diff_texts(a, b, filename):
+ 
+ class StdoutRefactoringTool(refactor.MultiprocessRefactoringTool):
+     """
++    A refactoring tool that can avoid overwriting its input files.
+     Prints output to stdout.
++
++    Output files can optionally be written to a different directory and or
++    have an extra file suffix appended to their name for use in situations
++    where you do not want to replace the input files.
+     """
+ 
+-    def __init__(self, fixers, options, explicit, nobackups, show_diffs):
++    def __init__(self, fixers, options, explicit, nobackups, show_diffs,
++                 input_base_dir='', output_dir='', append_suffix=''):
++        """
++        Args:
++            fixers: A list of fixers to import.
++            options: A dict with RefactoringTool configuration.
++            explicit: A list of fixers to run even if they are explicit.
++            nobackups: If true no backup '.bak' files will be created for those
++                files that are being refactored.
++            show_diffs: Should diffs of the refactoring be printed to stdout?
++            input_base_dir: The base directory for all input files.  This class
++                will strip this path prefix off of filenames before substituting
++                it with output_dir.  Only meaningful if output_dir is supplied.
++                All files processed by refactor() must start with this path.
++            output_dir: If supplied, all converted files will be written into
++                this directory tree instead of input_base_dir.
++            append_suffix: If supplied, all files output by this tool will have
++                this appended to their filename.  Useful for changing .py to
++                .py3 for example by passing append_suffix='3'.
++        """
+         self.nobackups = nobackups
+         self.show_diffs = show_diffs
++        if input_base_dir and not input_base_dir.endswith(os.sep):
++            input_base_dir += os.sep
++        self._input_base_dir = input_base_dir
++        self._output_dir = output_dir
++        self._append_suffix = append_suffix
+         super(StdoutRefactoringTool, self).__init__(fixers, options, explicit)
+ 
+     def log_error(self, msg, *args, **kwargs):
+@@ -38,23 +67,43 @@ class StdoutRefactoringTool(refactor.MultiprocessRefactoringTool):
+         self.logger.error(msg, *args, **kwargs)
+ 
+     def write_file(self, new_text, filename, old_text, encoding):
++        orig_filename = filename
++        if self._output_dir:
++            if filename.startswith(self._input_base_dir):
++                filename = os.path.join(self._output_dir,
++                                        filename[len(self._input_base_dir):])
++            else:
++                raise ValueError('filename %s does not start with the '
++                                 'input_base_dir %s' % (
++                                         filename, self._input_base_dir))
++        if self._append_suffix:
++            filename += self._append_suffix
++        if orig_filename != filename:
++            output_dir = os.path.dirname(filename)
++            if not os.path.isdir(output_dir) and output_dir:
++                os.makedirs(output_dir)
++            self.log_message('Writing converted %s to %s.', orig_filename,
++                             filename)
+         if not self.nobackups:
+             # Make backup
+             backup = filename + ".bak"
+             if os.path.lexists(backup):
+                 try:
+                     os.remove(backup)
+-                except os.error, err:
++                except OSError as err:
+                     self.log_message("Can't remove backup %s", backup)
+             try:
+                 os.rename(filename, backup)
+-            except os.error, err:
++            except OSError as err:
+                 self.log_message("Can't rename %s to %s", filename, backup)
+         # Actually write the new file
+         write = super(StdoutRefactoringTool, self).write_file
+         write(new_text, filename, old_text, encoding)
+         if not self.nobackups:
+             shutil.copymode(backup, filename)
++        if orig_filename != filename:
++            # Preserve the file mode in the new output directory.
++            shutil.copymode(orig_filename, filename)
+ 
+     def print_output(self, old, new, filename, equal):
+         if equal:
+@@ -67,19 +116,18 @@ class StdoutRefactoringTool(refactor.MultiprocessRefactoringTool):
+                     if self.output_lock is not None:
+                         with self.output_lock:
+                             for line in diff_lines:
+-                                print line
++                                print(line)
+                             sys.stdout.flush()
+                     else:
+                         for line in diff_lines:
+-                            print line
++                            print(line)
+                 except UnicodeEncodeError:
+                     warn("couldn't encode %s's diff for your terminal" %
+                          (filename,))
+                     return
+ 
+-
+ def warn(msg):
+-    print >> sys.stderr, "WARNING: %s" % (msg,)
++    print("WARNING: %s" % (msg,), file=sys.stderr)
+ 
+ 
+ def main(fixer_pkg, args=None):
+@@ -114,29 +162,51 @@ def main(fixer_pkg, args=None):
+                       help="Write back modified files")
+     parser.add_option("-n", "--nobackups", action="store_true", default=False,
+                       help="Don't write backups for modified files")
++    parser.add_option("-o", "--output-dir", action="store", type="str",
++                      default="", help="Put output files in this directory "
++                      "instead of overwriting the input files.  Requires -n.")
++    parser.add_option("-W", "--write-unchanged-files", action="store_true",
++                      help="Also write files even if no changes were required"
++                      " (useful with --output-dir); implies -w.")
++    parser.add_option("--add-suffix", action="store", type="str", default="",
++                      help="Append this string to all output filenames."
++                      " Requires -n if non-empty.  "
++                      "ex: --add-suffix='3' will generate .py3 files.")
+ 
+     # Parse command line arguments
+     refactor_stdin = False
+     flags = {}
+     options, args = parser.parse_args(args)
++    if options.write_unchanged_files:
++        flags["write_unchanged_files"] = True
++        if not options.write:
++            warn("--write-unchanged-files/-W implies -w.")
++        options.write = True
++    # If we allowed these, the original files would be renamed to backup names
++    # but not replaced.
++    if options.output_dir and not options.nobackups:
++        parser.error("Can't use --output-dir/-o without -n.")
++    if options.add_suffix and not options.nobackups:
++        parser.error("Can't use --add-suffix without -n.")
++
+     if not options.write and options.no_diffs:
+         warn("not writing files and not printing diffs; that's not very useful")
+     if not options.write and options.nobackups:
+         parser.error("Can't use -n without -w")
+     if options.list_fixes:
+-        print "Available transformations for the -f/--fix option:"
++        print("Available transformations for the -f/--fix option:")
+         for fixname in refactor.get_all_fix_names(fixer_pkg):
+-            print fixname
++            print(fixname)
+         if not args:
+             return 0
+     if not args:
+-        print >> sys.stderr, "At least one file or directory argument required."
+-        print >> sys.stderr, "Use --help to show usage."
++        print("At least one file or directory argument required.", file=sys.stderr)
++        print("Use --help to show usage.", file=sys.stderr)
+         return 2
+     if "-" in args:
+         refactor_stdin = True
+         if options.write:
+-            print >> sys.stderr, "Can't write to stdin."
++            print("Can't write to stdin.", file=sys.stderr)
+             return 2
+     if options.print_function:
+         flags["print_function"] = True
+@@ -144,6 +214,7 @@ def main(fixer_pkg, args=None):
+     # Set up logging handler
+     level = logging.DEBUG if options.verbose else logging.INFO
+     logging.basicConfig(format='%(name)s: %(message)s', level=level)
++    logger = logging.getLogger('lib2to3.main')
+ 
+     # Initialize the refactoring tool
+     avail_fixes = set(refactor.get_fixers_from_package(fixer_pkg))
+@@ -160,8 +231,23 @@ def main(fixer_pkg, args=None):
+     else:
+         requested = avail_fixes.union(explicit)
+     fixer_names = requested.difference(unwanted_fixes)
+-    rt = StdoutRefactoringTool(sorted(fixer_names), flags, sorted(explicit),
+-                               options.nobackups, not options.no_diffs)
++    input_base_dir = os.path.commonprefix(args)
++    if (input_base_dir and not input_base_dir.endswith(os.sep)
++        and not os.path.isdir(input_base_dir)):
++        # One or more similar names were passed, their directory is the base.
++        # os.path.commonprefix() is ignorant of path elements, this corrects
++        # for that weird API.
++        input_base_dir = os.path.dirname(input_base_dir)
++    if options.output_dir:
++        input_base_dir = input_base_dir.rstrip(os.sep)
++        logger.info('Output in %r will mirror the input directory %r layout.',
++                    options.output_dir, input_base_dir)
++    rt = StdoutRefactoringTool(
++            sorted(fixer_names), flags, sorted(explicit),
++            options.nobackups, not options.no_diffs,
++            input_base_dir=input_base_dir,
++            output_dir=options.output_dir,
++            append_suffix=options.add_suffix)
+ 
+     # Refactor all files and directories passed as arguments
+     if not rt.errors:
+@@ -173,8 +259,8 @@ def main(fixer_pkg, args=None):
+                             options.processes)
+             except refactor.MultiprocessingUnsupported:
+                 assert options.processes > 1
+-                print >> sys.stderr, "Sorry, -j isn't " \
+-                    "supported on this platform."
++                print("Sorry, -j isn't supported on this platform.",
++                      file=sys.stderr)
+                 return 1
+         rt.summarize()
+ 
+diff --git a/lib2to3/patcomp.py b/lib2to3/patcomp.py
+index 093e5f9..f57f495 100644
+--- a/lib2to3/patcomp.py
++++ b/lib2to3/patcomp.py
+@@ -3,7 +3,7 @@
+ 
+ """Pattern compiler.
+ 
+-The grammer is taken from PatternGrammar.txt.
++The grammar is taken from PatternGrammar.txt.
+ 
+ The compiler compiles a pattern to a pytree.*Pattern instance.
+ """
+@@ -11,8 +11,7 @@ The compiler compiles a pattern to a pytree.*Pattern instance.
+ __author__ = "Guido van Rossum <guido@python.org>"
+ 
+ # Python imports
+-import os
+-import StringIO
++import io
+ 
+ # Fairly local imports
+ from .pgen2 import driver, literals, token, tokenize, parse, grammar
+@@ -21,10 +20,6 @@ from .pgen2 import driver, literals, token, tokenize, parse, grammar
+ from . import pytree
+ from . import pygram
+ 
+-# The pattern grammar file
+-_PATTERN_GRAMMAR_FILE = os.path.join(os.path.dirname(__file__),
+-                                     "PatternGrammar.txt")
+-
+ 
+ class PatternSyntaxError(Exception):
+     pass
+@@ -32,8 +27,8 @@ class PatternSyntaxError(Exception):
+ 
+ def tokenize_wrapper(input):
+     """Tokenizes a string suppressing significant whitespace."""
+-    skip = set((token.NEWLINE, token.INDENT, token.DEDENT))
+-    tokens = tokenize.generate_tokens(StringIO.StringIO(input).readline)
++    skip = {token.NEWLINE, token.INDENT, token.DEDENT}
++    tokens = tokenize.generate_tokens(io.StringIO(input).readline)
+     for quintuple in tokens:
+         type, value, start, end, line_text = quintuple
+         if type not in skip:
+@@ -42,13 +37,17 @@ def tokenize_wrapper(input):
+ 
+ class PatternCompiler(object):
+ 
+-    def __init__(self, grammar_file=_PATTERN_GRAMMAR_FILE):
++    def __init__(self, grammar_file=None):
+         """Initializer.
+ 
+         Takes an optional alternative filename for the pattern grammar.
+         """
+-        self.grammar = driver.load_grammar(grammar_file)
+-        self.syms = pygram.Symbols(self.grammar)
++        if grammar_file is None:
++            self.grammar = pygram.pattern_grammar
++            self.syms = pygram.pattern_symbols
++        else:
++            self.grammar = driver.load_grammar(grammar_file)
++            self.syms = pygram.Symbols(self.grammar)
+         self.pygrammar = pygram.python_grammar
+         self.pysyms = pygram.python_symbols
+         self.driver = driver.Driver(self.grammar, convert=pattern_convert)
+@@ -59,7 +58,7 @@ class PatternCompiler(object):
+         try:
+             root = self.driver.parse_tokens(tokens, debug=debug)
+         except parse.ParseError as e:
+-            raise PatternSyntaxError(str(e))
++            raise PatternSyntaxError(str(e)) from None
+         if with_tree:
+             return self.compile_node(root), root
+         else:
+@@ -141,7 +140,7 @@ class PatternCompiler(object):
+         assert len(nodes) >= 1
+         node = nodes[0]
+         if node.type == token.STRING:
+-            value = unicode(literals.evalString(node.value))
++            value = str(literals.evalString(node.value))
+             return pytree.LeafPattern(_type_of_literal(value), value)
+         elif node.type == token.NAME:
+             value = node.value
+diff --git a/lib2to3/pgen2/conv.py b/lib2to3/pgen2/conv.py
+index 28fbb0b..ed0cac5 100644
+--- a/lib2to3/pgen2/conv.py
++++ b/lib2to3/pgen2/conv.py
+@@ -60,8 +60,8 @@ class Converter(grammar.Grammar):
+         """
+         try:
+             f = open(filename)
+-        except IOError, err:
+-            print "Can't open %s: %s" % (filename, err)
++        except OSError as err:
++            print("Can't open %s: %s" % (filename, err))
+             return False
+         self.symbol2number = {}
+         self.number2symbol = {}
+@@ -70,8 +70,8 @@ class Converter(grammar.Grammar):
+             lineno += 1
+             mo = re.match(r"^#define\s+(\w+)\s+(\d+)$", line)
+             if not mo and line.strip():
+-                print "%s(%s): can't parse %s" % (filename, lineno,
+-                                                  line.strip())
++                print("%s(%s): can't parse %s" % (filename, lineno,
++                                                  line.strip()))
+             else:
+                 symbol, number = mo.groups()
+                 number = int(number)
+@@ -111,20 +111,20 @@ class Converter(grammar.Grammar):
+         """
+         try:
+             f = open(filename)
+-        except IOError, err:
+-            print "Can't open %s: %s" % (filename, err)
++        except OSError as err:
++            print("Can't open %s: %s" % (filename, err))
+             return False
+         # The code below essentially uses f's iterator-ness!
+         lineno = 0
+ 
+         # Expect the two #include lines
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == '#include "pgenheaders.h"\n', (lineno, line)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == '#include "grammar.h"\n', (lineno, line)
+ 
+         # Parse the state definitions
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         allarcs = {}
+         states = []
+         while line.startswith("static arc "):
+@@ -132,35 +132,35 @@ class Converter(grammar.Grammar):
+                 mo = re.match(r"static arc arcs_(\d+)_(\d+)\[(\d+)\] = {$",
+                               line)
+                 assert mo, (lineno, line)
+-                n, m, k = map(int, mo.groups())
++                n, m, k = list(map(int, mo.groups()))
+                 arcs = []
+                 for _ in range(k):
+-                    lineno, line = lineno+1, f.next()
++                    lineno, line = lineno+1, next(f)
+                     mo = re.match(r"\s+{(\d+), (\d+)},$", line)
+                     assert mo, (lineno, line)
+-                    i, j = map(int, mo.groups())
++                    i, j = list(map(int, mo.groups()))
+                     arcs.append((i, j))
+-                lineno, line = lineno+1, f.next()
++                lineno, line = lineno+1, next(f)
+                 assert line == "};\n", (lineno, line)
+                 allarcs[(n, m)] = arcs
+-                lineno, line = lineno+1, f.next()
++                lineno, line = lineno+1, next(f)
+             mo = re.match(r"static state states_(\d+)\[(\d+)\] = {$", line)
+             assert mo, (lineno, line)
+-            s, t = map(int, mo.groups())
++            s, t = list(map(int, mo.groups()))
+             assert s == len(states), (lineno, line)
+             state = []
+             for _ in range(t):
+-                lineno, line = lineno+1, f.next()
++                lineno, line = lineno+1, next(f)
+                 mo = re.match(r"\s+{(\d+), arcs_(\d+)_(\d+)},$", line)
+                 assert mo, (lineno, line)
+-                k, n, m = map(int, mo.groups())
++                k, n, m = list(map(int, mo.groups()))
+                 arcs = allarcs[n, m]
+                 assert k == len(arcs), (lineno, line)
+                 state.append(arcs)
+             states.append(state)
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+             assert line == "};\n", (lineno, line)
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+         self.states = states
+ 
+         # Parse the dfas
+@@ -169,18 +169,18 @@ class Converter(grammar.Grammar):
+         assert mo, (lineno, line)
+         ndfas = int(mo.group(1))
+         for i in range(ndfas):
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+             mo = re.match(r'\s+{(\d+), "(\w+)", (\d+), (\d+), states_(\d+),$',
+                           line)
+             assert mo, (lineno, line)
+             symbol = mo.group(2)
+-            number, x, y, z = map(int, mo.group(1, 3, 4, 5))
++            number, x, y, z = list(map(int, mo.group(1, 3, 4, 5)))
+             assert self.symbol2number[symbol] == number, (lineno, line)
+             assert self.number2symbol[number] == symbol, (lineno, line)
+             assert x == 0, (lineno, line)
+             state = states[z]
+             assert y == len(state), (lineno, line)
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+             mo = re.match(r'\s+("(?:\\\d\d\d)*")},$', line)
+             assert mo, (lineno, line)
+             first = {}
+@@ -191,18 +191,18 @@ class Converter(grammar.Grammar):
+                     if byte & (1<<j):
+                         first[i*8 + j] = 1
+             dfas[number] = (state, first)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == "};\n", (lineno, line)
+         self.dfas = dfas
+ 
+         # Parse the labels
+         labels = []
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         mo = re.match(r"static label labels\[(\d+)\] = {$", line)
+         assert mo, (lineno, line)
+         nlabels = int(mo.group(1))
+         for i in range(nlabels):
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+             mo = re.match(r'\s+{(\d+), (0|"\w+")},$', line)
+             assert mo, (lineno, line)
+             x, y = mo.groups()
+@@ -212,35 +212,35 @@ class Converter(grammar.Grammar):
+             else:
+                 y = eval(y)
+             labels.append((x, y))
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == "};\n", (lineno, line)
+         self.labels = labels
+ 
+         # Parse the grammar struct
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == "grammar _PyParser_Grammar = {\n", (lineno, line)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         mo = re.match(r"\s+(\d+),$", line)
+         assert mo, (lineno, line)
+         ndfas = int(mo.group(1))
+         assert ndfas == len(self.dfas)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == "\tdfas,\n", (lineno, line)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         mo = re.match(r"\s+{(\d+), labels},$", line)
+         assert mo, (lineno, line)
+         nlabels = int(mo.group(1))
+         assert nlabels == len(self.labels), (lineno, line)
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         mo = re.match(r"\s+(\d+)$", line)
+         assert mo, (lineno, line)
+         start = int(mo.group(1))
+         assert start in self.number2symbol, (lineno, line)
+         self.start = start
+-        lineno, line = lineno+1, f.next()
++        lineno, line = lineno+1, next(f)
+         assert line == "};\n", (lineno, line)
+         try:
+-            lineno, line = lineno+1, f.next()
++            lineno, line = lineno+1, next(f)
+         except StopIteration:
+             pass
+         else:
+diff --git a/lib2to3/pgen2/driver.py b/lib2to3/pgen2/driver.py
+index 16adec0..6471635 100644
+--- a/lib2to3/pgen2/driver.py
++++ b/lib2to3/pgen2/driver.py
+@@ -16,10 +16,10 @@ __author__ = "Guido van Rossum <guido@python.org>"
+ __all__ = ["Driver", "load_grammar"]
+ 
+ # Python imports
+-import codecs
++import io
+ import os
+ import logging
+-import StringIO
++import pkgutil
+ import sys
+ 
+ # Pgen imports
+@@ -43,7 +43,7 @@ class Driver(object):
+         lineno = 1
+         column = 0
+         type = value = start = end = line_text = None
+-        prefix = u""
++        prefix = ""
+         for quintuple in tokens:
+             type, value, start, end, line_text = quintuple
+             if start != (lineno, column):
+@@ -94,28 +94,28 @@ class Driver(object):
+ 
+     def parse_file(self, filename, encoding=None, debug=False):
+         """Parse a file and return the syntax tree."""
+-        stream = codecs.open(filename, "r", encoding)
+-        try:
++        with io.open(filename, "r", encoding=encoding) as stream:
+             return self.parse_stream(stream, debug)
+-        finally:
+-            stream.close()
+ 
+     def parse_string(self, text, debug=False):
+         """Parse a string and return the syntax tree."""
+-        tokens = tokenize.generate_tokens(StringIO.StringIO(text).readline)
++        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+         return self.parse_tokens(tokens, debug)
+ 
+ 
++def _generate_pickle_name(gt):
++    head, tail = os.path.splitext(gt)
++    if tail == ".txt":
++        tail = ""
++    return head + tail + ".".join(map(str, sys.version_info)) + ".pickle"
++
++
+ def load_grammar(gt="Grammar.txt", gp=None,
+                  save=True, force=False, logger=None):
+     """Load the grammar (maybe from a pickle)."""
+     if logger is None:
+         logger = logging.getLogger()
+-    if gp is None:
+-        head, tail = os.path.splitext(gt)
+-        if tail == ".txt":
+-            tail = ""
+-        gp = head + tail + ".".join(map(str, sys.version_info)) + ".pickle"
++    gp = _generate_pickle_name(gt) if gp is None else gp
+     if force or not _newer(gp, gt):
+         logger.info("Generating grammar tables from %s", gt)
+         g = pgen.generate_grammar(gt)
+@@ -123,8 +123,8 @@ def load_grammar(gt="Grammar.txt", gp=None,
+             logger.info("Writing grammar tables to %s", gp)
+             try:
+                 g.dump(gp)
+-            except IOError, e:
+-                logger.info("Writing failed:"+str(e))
++            except OSError as e:
++                logger.info("Writing failed: %s", e)
+     else:
+         g = grammar.Grammar()
+         g.load(gp)
+@@ -138,3 +138,40 @@ def _newer(a, b):
+     if not os.path.exists(b):
+         return True
+     return os.path.getmtime(a) >= os.path.getmtime(b)
++
++
++def load_packaged_grammar(package, grammar_source):
++    """Normally, loads a pickled grammar by doing
++        pkgutil.get_data(package, pickled_grammar)
++    where *pickled_grammar* is computed from *grammar_source* by adding the
++    Python version and using a ``.pickle`` extension.
++
++    However, if *grammar_source* is an extant file, load_grammar(grammar_source)
++    is called instead. This facilitates using a packaged grammar file when needed
++    but preserves load_grammar's automatic regeneration behavior when possible.
++
++    """
++    if os.path.isfile(grammar_source):
++        return load_grammar(grammar_source)
++    pickled_name = _generate_pickle_name(os.path.basename(grammar_source))
++    data = pkgutil.get_data(package, pickled_name)
++    g = grammar.Grammar()
++    g.loads(data)
++    return g
++
++
++def main(*args):
++    """Main program, when run as a script: produce grammar pickle files.
++
++    Calls load_grammar for each argument, a path to a grammar text file.
++    """
++    if not args:
++        args = sys.argv[1:]
++    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
++                        format='%(message)s')
++    for gt in args:
++        load_grammar(gt, save=True, force=True)
++    return True
++
++if __name__ == "__main__":
++    sys.exit(int(not main()))
+diff --git a/lib2to3/pgen2/grammar.py b/lib2to3/pgen2/grammar.py
+index 0483424..6a4d575 100644
+--- a/lib2to3/pgen2/grammar.py
++++ b/lib2to3/pgen2/grammar.py
+@@ -16,11 +16,11 @@ fallback token code OP, but the parser needs the actual token code.
+ import pickle
+ 
+ # Local imports
+-from . import token, tokenize
++from . import token
+ 
+ 
+ class Grammar(object):
+-    """Pgen parsing tables tables conversion class.
++    """Pgen parsing tables conversion class.
+ 
+     Once initialized, this class supplies the grammar tables for the
+     parsing engine implemented by parse.py.  The parsing engine
+@@ -45,7 +45,7 @@ class Grammar(object):
+                      these two are each other's inverse.
+ 
+     states        -- a list of DFAs, where each DFA is a list of
+-                     states, each state is is a list of arcs, and each
++                     states, each state is a list of arcs, and each
+                      arc is a (i, j) pair where i is a label and j is
+                      a state number.  The DFA number is the index into
+                      this list.  (This name is slightly confusing.)
+@@ -86,17 +86,19 @@ class Grammar(object):
+ 
+     def dump(self, filename):
+         """Dump the grammar tables to a pickle file."""
+-        f = open(filename, "wb")
+-        pickle.dump(self.__dict__, f, 2)
+-        f.close()
++        with open(filename, "wb") as f:
++            pickle.dump(self.__dict__, f, pickle.HIGHEST_PROTOCOL)
+ 
+     def load(self, filename):
+         """Load the grammar tables from a pickle file."""
+-        f = open(filename, "rb")
+-        d = pickle.load(f)
+-        f.close()
++        with open(filename, "rb") as f:
++            d = pickle.load(f)
+         self.__dict__.update(d)
+ 
++    def loads(self, pkl):
++        """Load the grammar tables from a pickle bytes object."""
++        self.__dict__.update(pickle.loads(pkl))
++
+     def copy(self):
+         """
+         Copy the grammar.
+@@ -113,17 +115,17 @@ class Grammar(object):
+     def report(self):
+         """Dump the grammar tables to standard output, for debugging."""
+         from pprint import pprint
+-        print "s2n"
++        print("s2n")
+         pprint(self.symbol2number)
+-        print "n2s"
++        print("n2s")
+         pprint(self.number2symbol)
+-        print "states"
++        print("states")
+         pprint(self.states)
+-        print "dfas"
++        print("dfas")
+         pprint(self.dfas)
+-        print "labels"
++        print("labels")
+         pprint(self.labels)
+-        print "start", self.start
++        print("start", self.start)
+ 
+ 
+ # Map from operator to number (since tokenize doesn't do this)
+@@ -151,6 +153,7 @@ opmap_raw = """
+ { LBRACE
+ } RBRACE
+ @ AT
++@= ATEQUAL
+ == EQEQUAL
+ != NOTEQUAL
+ <> NOTEQUAL
+@@ -175,6 +178,7 @@ opmap_raw = """
+ // DOUBLESLASH
+ //= DOUBLESLASHEQUAL
+ -> RARROW
++:= COLONEQUAL
+ """
+ 
+ opmap = {}
+diff --git a/lib2to3/pgen2/literals.py b/lib2to3/pgen2/literals.py
+index 0b3948a..b9b63e6 100644
+--- a/lib2to3/pgen2/literals.py
++++ b/lib2to3/pgen2/literals.py
+@@ -29,12 +29,12 @@ def escape(m):
+         try:
+             i = int(hexes, 16)
+         except ValueError:
+-            raise ValueError("invalid hex string escape ('\\%s')" % tail)
++            raise ValueError("invalid hex string escape ('\\%s')" % tail) from None
+     else:
+         try:
+             i = int(tail, 8)
+         except ValueError:
+-            raise ValueError("invalid octal string escape ('\\%s')" % tail)
++            raise ValueError("invalid octal string escape ('\\%s')" % tail) from None
+     return chr(i)
+ 
+ def evalString(s):
+@@ -53,7 +53,7 @@ def test():
+         s = repr(c)
+         e = evalString(s)
+         if e != c:
+-            print i, c, s, e
++            print(i, c, s, e)
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/lib2to3/pgen2/parse.py b/lib2to3/pgen2/parse.py
+index 6bebdbb..cf3fcf7 100644
+--- a/lib2to3/pgen2/parse.py
++++ b/lib2to3/pgen2/parse.py
+@@ -24,6 +24,9 @@ class ParseError(Exception):
+         self.value = value
+         self.context = context
+ 
++    def __reduce__(self):
++        return type(self), (self.msg, self.type, self.value, self.context)
++
+ class Parser(object):
+     """Parser engine.
+ 
+diff --git a/lib2to3/pgen2/pgen.py b/lib2to3/pgen2/pgen.py
+index 63084a4..b0cbd16 100644
+--- a/lib2to3/pgen2/pgen.py
++++ b/lib2to3/pgen2/pgen.py
+@@ -26,7 +26,7 @@ class ParserGenerator(object):
+ 
+     def make_grammar(self):
+         c = PgenGrammar()
+-        names = self.dfas.keys()
++        names = list(self.dfas.keys())
+         names.sort()
+         names.remove(self.startsymbol)
+         names.insert(0, self.startsymbol)
+@@ -39,7 +39,7 @@ class ParserGenerator(object):
+             states = []
+             for state in dfa:
+                 arcs = []
+-                for label, next in state.arcs.iteritems():
++                for label, next in sorted(state.arcs.items()):
+                     arcs.append((self.make_label(c, label), dfa.index(next)))
+                 if state.isfinal:
+                     arcs.append((0, dfa.index(state)))
+@@ -52,7 +52,7 @@ class ParserGenerator(object):
+     def make_first(self, c, name):
+         rawfirst = self.first[name]
+         first = {}
+-        for label in rawfirst:
++        for label in sorted(rawfirst):
+             ilabel = self.make_label(c, label)
+             ##assert ilabel not in first # XXX failed on <> ... !=
+             first[ilabel] = 1
+@@ -105,7 +105,7 @@ class ParserGenerator(object):
+                     return ilabel
+ 
+     def addfirstsets(self):
+-        names = self.dfas.keys()
++        names = list(self.dfas.keys())
+         names.sort()
+         for name in names:
+             if name not in self.first:
+@@ -118,7 +118,7 @@ class ParserGenerator(object):
+         state = dfa[0]
+         totalset = {}
+         overlapcheck = {}
+-        for label, next in state.arcs.iteritems():
++        for label, next in state.arcs.items():
+             if label in self.dfas:
+                 if label in self.first:
+                     fset = self.first[label]
+@@ -133,7 +133,7 @@ class ParserGenerator(object):
+                 totalset[label] = 1
+                 overlapcheck[label] = {label: 1}
+         inverse = {}
+-        for label, itsfirst in overlapcheck.iteritems():
++        for label, itsfirst in overlapcheck.items():
+             for symbol in itsfirst:
+                 if symbol in inverse:
+                     raise ValueError("rule %s is ambiguous; %s is in the"
+@@ -192,7 +192,7 @@ class ParserGenerator(object):
+                 for label, next in nfastate.arcs:
+                     if label is not None:
+                         addclosure(next, arcs.setdefault(label, {}))
+-            for label, nfaset in arcs.iteritems():
++            for label, nfaset in sorted(arcs.items()):
+                 for st in states:
+                     if st.nfaset == nfaset:
+                         break
+@@ -203,10 +203,10 @@ class ParserGenerator(object):
+         return states # List of DFAState instances; first one is start
+ 
+     def dump_nfa(self, name, start, finish):
+-        print "Dump of NFA for", name
++        print("Dump of NFA for", name)
+         todo = [start]
+         for i, state in enumerate(todo):
+-            print "  State", i, state is finish and "(final)" or ""
++            print("  State", i, state is finish and "(final)" or "")
+             for label, next in state.arcs:
+                 if next in todo:
+                     j = todo.index(next)
+@@ -214,16 +214,16 @@ class ParserGenerator(object):
+                     j = len(todo)
+                     todo.append(next)
+                 if label is None:
+-                    print "    -> %d" % j
++                    print("    -> %d" % j)
+                 else:
+-                    print "    %s -> %d" % (label, j)
++                    print("    %s -> %d" % (label, j))
+ 
+     def dump_dfa(self, name, dfa):
+-        print "Dump of DFA for", name
++        print("Dump of DFA for", name)
+         for i, state in enumerate(dfa):
+-            print "  State", i, state.isfinal and "(final)" or ""
+-            for label, next in state.arcs.iteritems():
+-                print "    %s -> %d" % (label, dfa.index(next))
++            print("  State", i, state.isfinal and "(final)" or "")
++            for label, next in sorted(state.arcs.items()):
++                print("    %s -> %d" % (label, dfa.index(next)))
+ 
+     def simplify_dfa(self, dfa):
+         # This is not theoretically optimal, but works well enough.
+@@ -319,9 +319,9 @@ class ParserGenerator(object):
+         return value
+ 
+     def gettoken(self):
+-        tup = self.generator.next()
++        tup = next(self.generator)
+         while tup[0] in (tokenize.COMMENT, tokenize.NL):
+-            tup = self.generator.next()
++            tup = next(self.generator)
+         self.type, self.value, self.begin, self.end, self.line = tup
+         #print token.tok_name[self.type], repr(self.value)
+ 
+@@ -330,7 +330,7 @@ class ParserGenerator(object):
+             try:
+                 msg = msg % args
+             except:
+-                msg = " ".join([msg] + map(str, args))
++                msg = " ".join([msg] + list(map(str, args)))
+         raise SyntaxError(msg, (self.filename, self.end[0],
+                                 self.end[1], self.line))
+ 
+@@ -348,7 +348,7 @@ class DFAState(object):
+ 
+     def __init__(self, nfaset, final):
+         assert isinstance(nfaset, dict)
+-        assert isinstance(iter(nfaset).next(), NFAState)
++        assert isinstance(next(iter(nfaset)), NFAState)
+         assert isinstance(final, NFAState)
+         self.nfaset = nfaset
+         self.isfinal = final in nfaset
+@@ -361,7 +361,7 @@ class DFAState(object):
+         self.arcs[label] = next
+ 
+     def unifystate(self, old, new):
+-        for label, next in self.arcs.iteritems():
++        for label, next in self.arcs.items():
+             if next is old:
+                 self.arcs[label] = new
+ 
+@@ -374,7 +374,7 @@ class DFAState(object):
+         # would invoke this method recursively, with cycles...
+         if len(self.arcs) != len(other.arcs):
+             return False
+-        for label, next in self.arcs.iteritems():
++        for label, next in self.arcs.items():
+             if next is not other.arcs.get(label):
+                 return False
+         return True
+diff --git a/lib2to3/pgen2/token.py b/lib2to3/pgen2/token.py
+index 61468b3..5f6612f 100755
+--- a/lib2to3/pgen2/token.py
++++ b/lib2to3/pgen2/token.py
+@@ -1,4 +1,4 @@
+-#! /usr/bin/env python
++#! /usr/bin/env python3
+ 
+ """Token constants (from "token.h")."""
+ 
+@@ -57,17 +57,21 @@ DOUBLESTAREQUAL = 47
+ DOUBLESLASH = 48
+ DOUBLESLASHEQUAL = 49
+ AT = 50
+-OP = 51
+-COMMENT = 52
+-NL = 53
+-RARROW = 54
+-ERRORTOKEN = 55
+-N_TOKENS = 56
++ATEQUAL = 51
++OP = 52
++COMMENT = 53
++NL = 54
++RARROW = 55
++AWAIT = 56
++ASYNC = 57
++ERRORTOKEN = 58
++COLONEQUAL = 59
++N_TOKENS = 60
+ NT_OFFSET = 256
+ #--end constants--
+ 
+ tok_name = {}
+-for _name, _value in globals().items():
++for _name, _value in list(globals().items()):
+     if type(_value) is type(0):
+         tok_name[_value] = _name
+ 
+diff --git a/lib2to3/pgen2/tokenize.py b/lib2to3/pgen2/tokenize.py
+index e090aa9..0e2685d 100644
+--- a/lib2to3/pgen2/tokenize.py
++++ b/lib2to3/pgen2/tokenize.py
+@@ -48,22 +48,26 @@ except NameError:
+ def group(*choices): return '(' + '|'.join(choices) + ')'
+ def any(*choices): return group(*choices) + '*'
+ def maybe(*choices): return group(*choices) + '?'
++def _combinations(*l):
++    return set(
++        x + y for x in l for y in l + ("",) if x.casefold() != y.casefold()
++    )
+ 
+ Whitespace = r'[ \f\t]*'
+ Comment = r'#[^\r\n]*'
+ Ignore = Whitespace + any(r'\\\r?\n' + Whitespace) + maybe(Comment)
+-Name = r'[a-zA-Z_]\w*'
++Name = r'\w+'
+ 
+-Binnumber = r'0[bB][01]*'
+-Hexnumber = r'0[xX][\da-fA-F]*[lL]?'
+-Octnumber = r'0[oO]?[0-7]*[lL]?'
+-Decnumber = r'[1-9]\d*[lL]?'
++Binnumber = r'0[bB]_?[01]+(?:_[01]+)*'
++Hexnumber = r'0[xX]_?[\da-fA-F]+(?:_[\da-fA-F]+)*[lL]?'
++Octnumber = r'0[oO]?_?[0-7]+(?:_[0-7]+)*[lL]?'
++Decnumber = group(r'[1-9]\d*(?:_\d+)*[lL]?', '0[lL]?')
+ Intnumber = group(Binnumber, Hexnumber, Octnumber, Decnumber)
+-Exponent = r'[eE][-+]?\d+'
+-Pointfloat = group(r'\d+\.\d*', r'\.\d+') + maybe(Exponent)
+-Expfloat = r'\d+' + Exponent
++Exponent = r'[eE][-+]?\d+(?:_\d+)*'
++Pointfloat = group(r'\d+(?:_\d+)*\.(?:\d+(?:_\d+)*)?', r'\.\d+(?:_\d+)*') + maybe(Exponent)
++Expfloat = r'\d+(?:_\d+)*' + Exponent
+ Floatnumber = group(Pointfloat, Expfloat)
+-Imagnumber = group(r'\d+[jJ]', Floatnumber + r'[jJ]')
++Imagnumber = group(r'\d+(?:_\d+)*[jJ]', Floatnumber + r'[jJ]')
+ Number = group(Imagnumber, Floatnumber, Intnumber)
+ 
+ # Tail end of ' string.
+@@ -74,76 +78,60 @@ Double = r'[^"\\]*(?:\\.[^"\\]*)*"'
+ Single3 = r"[^'\\]*(?:(?:\\.|'(?!''))[^'\\]*)*'''"
+ # Tail end of """ string.
+ Double3 = r'[^"\\]*(?:(?:\\.|"(?!""))[^"\\]*)*"""'
+-Triple = group("[ubUB]?[rR]?'''", '[ubUB]?[rR]?"""')
++_litprefix = r"(?:[uUrRbBfF]|[rR][fFbB]|[fFbBuU][rR])?"
++Triple = group(_litprefix + "'''", _litprefix + '"""')
+ # Single-line ' or " string.
+-String = group(r"[uU]?[rR]?'[^\n'\\]*(?:\\.[^\n'\\]*)*'",
+-               r'[uU]?[rR]?"[^\n"\\]*(?:\\.[^\n"\\]*)*"')
++String = group(_litprefix + r"'[^\n'\\]*(?:\\.[^\n'\\]*)*'",
++               _litprefix + r'"[^\n"\\]*(?:\\.[^\n"\\]*)*"')
+ 
+ # Because of leftmost-then-longest match semantics, be sure to put the
+ # longest operators first (e.g., if = came before ==, == would get
+ # recognized as two instances of =).
+ Operator = group(r"\*\*=?", r">>=?", r"<<=?", r"<>", r"!=",
+                  r"//=?", r"->",
+-                 r"[+\-*/%&|^=<>]=?",
++                 r"[+\-*/%&@|^=<>]=?",
+                  r"~")
+ 
+ Bracket = '[][(){}]'
+-Special = group(r'\r?\n', r'[:;.,`@]')
++Special = group(r'\r?\n', r':=', r'[:;.,`@]')
+ Funny = group(Operator, Bracket, Special)
+ 
+ PlainToken = group(Number, Funny, String, Name)
+ Token = Ignore + PlainToken
+ 
+ # First (or only) line of ' or " string.
+-ContStr = group(r"[uUbB]?[rR]?'[^\n'\\]*(?:\\.[^\n'\\]*)*" +
++ContStr = group(_litprefix + r"'[^\n'\\]*(?:\\.[^\n'\\]*)*" +
+                 group("'", r'\\\r?\n'),
+-                r'[uUbB]?[rR]?"[^\n"\\]*(?:\\.[^\n"\\]*)*' +
++                _litprefix + r'"[^\n"\\]*(?:\\.[^\n"\\]*)*' +
+                 group('"', r'\\\r?\n'))
+ PseudoExtras = group(r'\\\r?\n', Comment, Triple)
+ PseudoToken = Whitespace + group(PseudoExtras, Number, Funny, ContStr, Name)
+ 
+ tokenprog, pseudoprog, single3prog, double3prog = map(
+     re.compile, (Token, PseudoToken, Single3, Double3))
++
++_strprefixes = (
++    _combinations('r', 'R', 'f', 'F') |
++    _combinations('r', 'R', 'b', 'B') |
++    {'u', 'U', 'ur', 'uR', 'Ur', 'UR'}
++)
++
+ endprogs = {"'": re.compile(Single), '"': re.compile(Double),
+             "'''": single3prog, '"""': double3prog,
+-            "r'''": single3prog, 'r"""': double3prog,
+-            "u'''": single3prog, 'u"""': double3prog,
+-            "b'''": single3prog, 'b"""': double3prog,
+-            "ur'''": single3prog, 'ur"""': double3prog,
+-            "br'''": single3prog, 'br"""': double3prog,
+-            "R'''": single3prog, 'R"""': double3prog,
+-            "U'''": single3prog, 'U"""': double3prog,
+-            "B'''": single3prog, 'B"""': double3prog,
+-            "uR'''": single3prog, 'uR"""': double3prog,
+-            "Ur'''": single3prog, 'Ur"""': double3prog,
+-            "UR'''": single3prog, 'UR"""': double3prog,
+-            "bR'''": single3prog, 'bR"""': double3prog,
+-            "Br'''": single3prog, 'Br"""': double3prog,
+-            "BR'''": single3prog, 'BR"""': double3prog,
+-            'r': None, 'R': None,
+-            'u': None, 'U': None,
+-            'b': None, 'B': None}
+-
+-triple_quoted = {}
+-for t in ("'''", '"""',
+-          "r'''", 'r"""', "R'''", 'R"""',
+-          "u'''", 'u"""', "U'''", 'U"""',
+-          "b'''", 'b"""', "B'''", 'B"""',
+-          "ur'''", 'ur"""', "Ur'''", 'Ur"""',
+-          "uR'''", 'uR"""', "UR'''", 'UR"""',
+-          "br'''", 'br"""', "Br'''", 'Br"""',
+-          "bR'''", 'bR"""', "BR'''", 'BR"""',):
+-    triple_quoted[t] = t
+-single_quoted = {}
+-for t in ("'", '"',
+-          "r'", 'r"', "R'", 'R"',
+-          "u'", 'u"', "U'", 'U"',
+-          "b'", 'b"', "B'", 'B"',
+-          "ur'", 'ur"', "Ur'", 'Ur"',
+-          "uR'", 'uR"', "UR'", 'UR"',
+-          "br'", 'br"', "Br'", 'Br"',
+-          "bR'", 'bR"', "BR'", 'BR"', ):
+-    single_quoted[t] = t
++            **{f"{prefix}'''": single3prog for prefix in _strprefixes},
++            **{f'{prefix}"""': double3prog for prefix in _strprefixes},
++            **{prefix: None for prefix in _strprefixes}}
++
++triple_quoted = (
++    {"'''", '"""'} |
++    {f"{prefix}'''" for prefix in _strprefixes} |
++    {f'{prefix}"""' for prefix in _strprefixes}
++)
++single_quoted = (
++    {"'", '"'} |
++    {f"{prefix}'" for prefix in _strprefixes} |
++    {f'{prefix}"' for prefix in _strprefixes}
++)
+ 
+ tabsize = 8
+ 
+@@ -151,11 +139,11 @@ class TokenError(Exception): pass
+ 
+ class StopTokenizing(Exception): pass
+ 
+-def printtoken(type, token, start, end, line): # for testing
+-    (srow, scol) = start
+-    (erow, ecol) = end
+-    print "%d,%d-%d,%d:\t%s\t%s" % \
+-        (srow, scol, erow, ecol, tok_name[type], repr(token))
++def printtoken(type, token, xxx_todo_changeme, xxx_todo_changeme1, line): # for testing
++    (srow, scol) = xxx_todo_changeme
++    (erow, ecol) = xxx_todo_changeme1
++    print("%d,%d-%d,%d:\t%s\t%s" % \
++        (srow, scol, erow, ecol, tok_name[type], repr(token)))
+ 
+ def tokenize(readline, tokeneater=printtoken):
+     """
+@@ -220,7 +208,7 @@ class Untokenizer:
+         for tok in iterable:
+             toknum, tokval = tok[:2]
+ 
+-            if toknum in (NAME, NUMBER):
++            if toknum in (NAME, NUMBER, ASYNC, AWAIT):
+                 tokval += ' '
+ 
+             if toknum == INDENT:
+@@ -236,7 +224,8 @@ class Untokenizer:
+                 startline = False
+             toks_append(tokval)
+ 
+-cookie_re = re.compile("coding[:=]\s*([-\w.]+)")
++cookie_re = re.compile(r'^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)', re.ASCII)
++blank_re = re.compile(br'^[ \t\f]*(?:[#\r\n]|$)', re.ASCII)
+ 
+ def _get_normal_name(orig_enc):
+     """Imitates get_normal_name in tokenizer.c."""
+@@ -252,7 +241,7 @@ def _get_normal_name(orig_enc):
+ def detect_encoding(readline):
+     """
+     The detect_encoding() function is used to detect the encoding that should
+-    be used to decode a Python source file. It requires one argment, readline,
++    be used to decode a Python source file. It requires one argument, readline,
+     in the same way as the tokenize() generator.
+ 
+     It will call readline a maximum of twice, and return the encoding used
+@@ -281,11 +270,10 @@ def detect_encoding(readline):
+             line_string = line.decode('ascii')
+         except UnicodeDecodeError:
+             return None
+-
+-        matches = cookie_re.findall(line_string)
+-        if not matches:
++        match = cookie_re.match(line_string)
++        if not match:
+             return None
+-        encoding = _get_normal_name(matches[0])
++        encoding = _get_normal_name(match.group(1))
+         try:
+             codec = lookup(encoding)
+         except LookupError:
+@@ -310,6 +298,8 @@ def detect_encoding(readline):
+     encoding = find_cookie(first)
+     if encoding:
+         return encoding, [first]
++    if not blank_re.match(first):
++        return default, [first]
+ 
+     second = read_or_stop()
+     if not second:
+@@ -331,7 +321,7 @@ def untokenize(iterable):
+     Round-trip invariant for full input:
+         Untokenized source will match input source exactly
+ 
+-    Round-trip invariant for limited intput:
++    Round-trip invariant for limited input:
+         # Output text will tokenize the back to the input
+         t1 = [tok[:2] for tok in generate_tokens(f.readline)]
+         newcode = untokenize(t1)
+@@ -344,7 +334,7 @@ def untokenize(iterable):
+ 
+ def generate_tokens(readline):
+     """
+-    The generate_tokens() generator requires one argment, readline, which
++    The generate_tokens() generator requires one argument, readline, which
+     must be a callable object which provides the same interface as the
+     readline() method of built-in file objects. Each call to the function
+     should return one line of input as a string.  Alternately, readline
+@@ -356,14 +346,19 @@ def generate_tokens(readline):
+     column where the token begins in the source; a 2-tuple (erow, ecol) of
+     ints specifying the row and column where the token ends in the source;
+     and the line on which the token was found. The line passed is the
+-    logical line; continuation lines are included.
++    physical line.
+     """
+     lnum = parenlev = continued = 0
+-    namechars, numchars = string.ascii_letters + '_', '0123456789'
+     contstr, needcont = '', 0
+     contline = None
+     indents = [0]
+ 
++    # 'stashed' and 'async_*' are used for async/await parsing
++    stashed = None
++    async_def = False
++    async_def_indent = 0
++    async_def_nl = False
++
+     while 1:                                   # loop over lines in stream
+         try:
+             line = readline()
+@@ -374,7 +369,7 @@ def generate_tokens(readline):
+ 
+         if contstr:                            # continued string
+             if not line:
+-                raise TokenError, ("EOF in multi-line string", strstart)
++                raise TokenError("EOF in multi-line string", strstart)
+             endmatch = endprog.match(line)
+             if endmatch:
+                 pos = end = endmatch.end(0)
+@@ -404,6 +399,10 @@ def generate_tokens(readline):
+                 pos = pos + 1
+             if pos == max: break
+ 
++            if stashed:
++                yield stashed
++                stashed = None
++
+             if line[pos] in '#\r\n':           # skip comments or blank lines
+                 if line[pos] == '#':
+                     comment_token = line[pos:].rstrip('\r\n')
+@@ -426,11 +425,22 @@ def generate_tokens(readline):
+                         "unindent does not match any outer indentation level",
+                         ("<tokenize>", lnum, pos, line))
+                 indents = indents[:-1]
++
++                if async_def and async_def_indent >= indents[-1]:
++                    async_def = False
++                    async_def_nl = False
++                    async_def_indent = 0
++
+                 yield (DEDENT, '', (lnum, pos), (lnum, pos), line)
+ 
++            if async_def and async_def_nl and async_def_indent >= indents[-1]:
++                async_def = False
++                async_def_nl = False
++                async_def_indent = 0
++
+         else:                                  # continued statement
+             if not line:
+-                raise TokenError, ("EOF in multi-line statement", (lnum, 0))
++                raise TokenError("EOF in multi-line statement", (lnum, 0))
+             continued = 0
+ 
+         while pos < max:
+@@ -440,16 +450,25 @@ def generate_tokens(readline):
+                 spos, epos, pos = (lnum, start), (lnum, end), end
+                 token, initial = line[start:end], line[start]
+ 
+-                if initial in numchars or \
++                if initial in string.digits or \
+                    (initial == '.' and token != '.'):      # ordinary number
+                     yield (NUMBER, token, spos, epos, line)
+                 elif initial in '\r\n':
+                     newline = NEWLINE
+                     if parenlev > 0:
+                         newline = NL
++                    elif async_def:
++                        async_def_nl = True
++                    if stashed:
++                        yield stashed
++                        stashed = None
+                     yield (newline, token, spos, epos, line)
++
+                 elif initial == '#':
+                     assert not token.endswith("\n")
++                    if stashed:
++                        yield stashed
++                        stashed = None
+                     yield (COMMENT, token, spos, epos, line)
+                 elif token in triple_quoted:
+                     endprog = endprogs[token]
+@@ -457,6 +476,9 @@ def generate_tokens(readline):
+                     if endmatch:                           # all on one line
+                         pos = endmatch.end(0)
+                         token = line[start:pos]
++                        if stashed:
++                            yield stashed
++                            stashed = None
+                         yield (STRING, token, spos, (lnum, pos), line)
+                     else:
+                         strstart = (lnum, start)           # multiple lines
+@@ -474,22 +496,63 @@ def generate_tokens(readline):
+                         contline = line
+                         break
+                     else:                                  # ordinary string
++                        if stashed:
++                            yield stashed
++                            stashed = None
+                         yield (STRING, token, spos, epos, line)
+-                elif initial in namechars:                 # ordinary name
+-                    yield (NAME, token, spos, epos, line)
++                elif initial.isidentifier():               # ordinary name
++                    if token in ('async', 'await'):
++                        if async_def:
++                            yield (ASYNC if token == 'async' else AWAIT,
++                                   token, spos, epos, line)
++                            continue
++
++                    tok = (NAME, token, spos, epos, line)
++                    if token == 'async' and not stashed:
++                        stashed = tok
++                        continue
++
++                    if token == 'def':
++                        if (stashed
++                                and stashed[0] == NAME
++                                and stashed[1] == 'async'):
++
++                            async_def = True
++                            async_def_indent = indents[-1]
++
++                            yield (ASYNC, stashed[1],
++                                   stashed[2], stashed[3],
++                                   stashed[4])
++                            stashed = None
++
++                    if stashed:
++                        yield stashed
++                        stashed = None
++
++                    yield tok
+                 elif initial == '\\':                      # continued stmt
+                     # This yield is new; needed for better idempotency:
++                    if stashed:
++                        yield stashed
++                        stashed = None
+                     yield (NL, token, spos, (lnum, pos), line)
+                     continued = 1
+                 else:
+                     if initial in '([{': parenlev = parenlev + 1
+                     elif initial in ')]}': parenlev = parenlev - 1
++                    if stashed:
++                        yield stashed
++                        stashed = None
+                     yield (OP, token, spos, epos, line)
+             else:
+                 yield (ERRORTOKEN, line[pos],
+                            (lnum, pos), (lnum, pos+1), line)
+                 pos = pos + 1
+ 
++    if stashed:
++        yield stashed
++        stashed = None
++
+     for indent in indents[1:]:                 # pop remaining indent levels
+         yield (DEDENT, '', (lnum, 0), (lnum, 0), '')
+     yield (ENDMARKER, '', (lnum, 0), (lnum, 0), '')
+diff --git a/lib2to3/pygram.py b/lib2to3/pygram.py
+index 621ff24..24d9db9 100644
+--- a/lib2to3/pygram.py
++++ b/lib2to3/pygram.py
+@@ -25,16 +25,19 @@ class Symbols(object):
+         Creates an attribute for each grammar symbol (nonterminal),
+         whose value is the symbol's type (an int >= 256).
+         """
+-        for name, symbol in grammar.symbol2number.iteritems():
++        for name, symbol in grammar.symbol2number.items():
+             setattr(self, name, symbol)
+ 
+ 
+-python_grammar = driver.load_grammar(_GRAMMAR_FILE)
++python_grammar = driver.load_packaged_grammar("lib2to3", _GRAMMAR_FILE)
+ 
+ python_symbols = Symbols(python_grammar)
+ 
+ python_grammar_no_print_statement = python_grammar.copy()
+ del python_grammar_no_print_statement.keywords["print"]
+ 
+-pattern_grammar = driver.load_grammar(_PATTERN_GRAMMAR_FILE)
++python_grammar_no_print_and_exec_statement = python_grammar_no_print_statement.copy()
++del python_grammar_no_print_and_exec_statement.keywords["exec"]
++
++pattern_grammar = driver.load_packaged_grammar("lib2to3", _PATTERN_GRAMMAR_FILE)
+ pattern_symbols = Symbols(pattern_grammar)
+diff --git a/lib2to3/pytree.py b/lib2to3/pytree.py
+index 179caca..2a6ef2e 100644
+--- a/lib2to3/pytree.py
++++ b/lib2to3/pytree.py
+@@ -13,8 +13,7 @@ There's also a pattern matching implementation here.
+ __author__ = "Guido van Rossum <guido@python.org>"
+ 
+ import sys
+-import warnings
+-from StringIO import StringIO
++from io import StringIO
+ 
+ HUGE = 0x7FFFFFFF  # maximum repeat count, default max
+ 
+@@ -64,16 +63,6 @@ class Base(object):
+ 
+     __hash__ = None # For Py3 compatibility.
+ 
+-    def __ne__(self, other):
+-        """
+-        Compare two nodes for inequality.
+-
+-        This calls the method _eq().
+-        """
+-        if self.__class__ is not other.__class__:
+-            return NotImplemented
+-        return not self._eq(other)
+-
+     def _eq(self, other):
+         """
+         Compare two nodes for equality.
+@@ -109,26 +98,6 @@ class Base(object):
+         """
+         raise NotImplementedError
+ 
+-    def set_prefix(self, prefix):
+-        """
+-        Set the prefix for the node (see Leaf class).
+-
+-        DEPRECATED; use the prefix property directly.
+-        """
+-        warnings.warn("set_prefix() is deprecated; use the prefix property",
+-                      DeprecationWarning, stacklevel=2)
+-        self.prefix = prefix
+-
+-    def get_prefix(self):
+-        """
+-        Return the prefix for the node (see Leaf class).
+-
+-        DEPRECATED; use the prefix property directly.
+-        """
+-        warnings.warn("get_prefix() is deprecated; use the prefix property",
+-                      DeprecationWarning, stacklevel=2)
+-        return self.prefix
+-
+     def replace(self, new):
+         """Replace this node with a new one in the parent."""
+         assert self.parent is not None, str(self)
+@@ -214,8 +183,7 @@ class Base(object):
+ 
+     def leaves(self):
+         for child in self.children:
+-            for x in child.leaves():
+-                yield x
++            yield from child.leaves()
+ 
+     def depth(self):
+         if self.parent is None:
+@@ -229,12 +197,12 @@ class Base(object):
+         """
+         next_sib = self.next_sibling
+         if next_sib is None:
+-            return u""
++            return ""
+         return next_sib.prefix
+ 
+     if sys.version_info < (3, 0):
+         def __str__(self):
+-            return unicode(self).encode("ascii")
++            return str(self).encode("ascii")
+ 
+ class Node(Base):
+ 
+@@ -277,7 +245,7 @@ class Node(Base):
+ 
+         This reproduces the input source exactly.
+         """
+-        return u"".join(map(unicode, self.children))
++        return "".join(map(str, self.children))
+ 
+     if sys.version_info > (3, 0):
+         __str__ = __unicode__
+@@ -294,18 +262,17 @@ class Node(Base):
+     def post_order(self):
+         """Return a post-order iterator for the tree."""
+         for child in self.children:
+-            for node in child.post_order():
+-                yield node
++            yield from child.post_order()
+         yield self
+ 
+     def pre_order(self):
+         """Return a pre-order iterator for the tree."""
+         yield self
+         for child in self.children:
+-            for node in child.pre_order():
+-                yield node
++            yield from child.pre_order()
+ 
+-    def _prefix_getter(self):
++    @property
++    def prefix(self):
+         """
+         The whitespace and comments preceding this node in the input.
+         """
+@@ -313,12 +280,11 @@ class Node(Base):
+             return ""
+         return self.children[0].prefix
+ 
+-    def _prefix_setter(self, prefix):
++    @prefix.setter
++    def prefix(self, prefix):
+         if self.children:
+             self.children[0].prefix = prefix
+ 
+-    prefix = property(_prefix_getter, _prefix_setter)
+-
+     def set_child(self, i, child):
+         """
+         Equivalent to 'node.children[i] = child'. This method also sets the
+@@ -388,7 +354,7 @@ class Leaf(Base):
+ 
+         This reproduces the input source exactly.
+         """
+-        return self.prefix + unicode(self.value)
++        return self.prefix + str(self.value)
+ 
+     if sys.version_info > (3, 0):
+         __str__ = __unicode__
+@@ -414,18 +380,18 @@ class Leaf(Base):
+         """Return a pre-order iterator for the tree."""
+         yield self
+ 
+-    def _prefix_getter(self):
++    @property
++    def prefix(self):
+         """
+         The whitespace and comments preceding this token in the input.
+         """
+         return self._prefix
+ 
+-    def _prefix_setter(self, prefix):
++    @prefix.setter
++    def prefix(self, prefix):
+         self.changed()
+         self._prefix = prefix
+ 
+-    prefix = property(_prefix_getter, _prefix_setter)
+-
+ def convert(gr, raw_node):
+     """
+     Convert raw node information to a Node or Leaf instance.
+@@ -548,7 +514,7 @@ class LeafPattern(BasePattern):
+         if type is not None:
+             assert 0 <= type < 256, type
+         if content is not None:
+-            assert isinstance(content, basestring), repr(content)
++            assert isinstance(content, str), repr(content)
+         self.type = type
+         self.content = content
+         self.name = name
+@@ -598,7 +564,7 @@ class NodePattern(BasePattern):
+         if type is not None:
+             assert type >= 256, type
+         if content is not None:
+-            assert not isinstance(content, basestring), repr(content)
++            assert not isinstance(content, str), repr(content)
+             content = list(content)
+             for i, item in enumerate(content):
+                 assert isinstance(item, BasePattern), (i, item)
+@@ -733,7 +699,7 @@ class WildcardPattern(BasePattern):
+         """
+         if self.content is None:
+             # Shortcut for special case (see __init__.__doc__)
+-            for count in xrange(self.min, 1 + min(len(nodes), self.max)):
++            for count in range(self.min, 1 + min(len(nodes), self.max)):
+                 r = {}
+                 if self.name:
+                     r[self.name] = nodes[:count]
+@@ -743,8 +709,8 @@ class WildcardPattern(BasePattern):
+         else:
+             # The reason for this is that hitting the recursion limit usually
+             # results in some ugly messages about how RuntimeErrors are being
+-            # ignored. We don't do this on non-CPython implementation because
+-            # they don't have this problem.
++            # ignored. We only have to do this on CPython, though, because other
++            # implementations don't have this nasty bug in the first place.
+             if hasattr(sys, "getrefcount"):
+                 save_stderr = sys.stderr
+                 sys.stderr = StringIO()
+diff --git a/lib2to3/refactor.py b/lib2to3/refactor.py
+index 7d00d12..55fd60f 100644
+--- a/lib2to3/refactor.py
++++ b/lib2to3/refactor.py
+@@ -8,38 +8,35 @@ recursively descend down directories.  Imported as a module, this
+ provides infrastructure to write your own refactoring tool.
+ """
+ 
+-from __future__ import with_statement
+-
+ __author__ = "Guido van Rossum <guido@python.org>"
+ 
+ 
+ # Python imports
++import io
+ import os
++import pkgutil
+ import sys
+ import logging
+ import operator
+ import collections
+-import StringIO
+ from itertools import chain
+ 
+ # Local imports
+ from .pgen2 import driver, tokenize, token
+ from .fixer_util import find_root
+ from . import pytree, pygram
+-from . import btm_utils as bu
+ from . import btm_matcher as bm
+ 
+ 
+ def get_all_fix_names(fixer_pkg, remove_prefix=True):
+     """Return a sorted list of all available fix names in the given package."""
+     pkg = __import__(fixer_pkg, [], [], ["*"])
+-    fixer_dir = os.path.dirname(pkg.__file__)
+     fix_names = []
+-    for name in sorted(os.listdir(fixer_dir)):
+-        if name.startswith("fix_") and name.endswith(".py"):
++    for finder, name, ispkg in pkgutil.iter_modules(pkg.__path__):
++        if name.startswith("fix_"):
+             if remove_prefix:
+                 name = name[4:]
+-            fix_names.append(name[:-3])
++            fix_names.append(name)
+     return fix_names
+ 
+ 
+@@ -57,7 +54,7 @@ def _get_head_types(pat):
+         # Always return leafs
+         if pat.type is None:
+             raise _EveryNode
+-        return set([pat.type])
++        return {pat.type}
+ 
+     if isinstance(pat, pytree.NegatedPattern):
+         if pat.content:
+@@ -94,7 +91,7 @@ def _get_headnode_dict(fixer_list):
+                 head_nodes[fixer._accept_type].append(fixer)
+             else:
+                 every.append(fixer)
+-    for node_type in chain(pygram.python_grammar.symbol2number.itervalues(),
++    for node_type in chain(pygram.python_grammar.symbol2number.values(),
+                            pygram.python_grammar.tokens):
+         head_nodes[node_type].extend(every)
+     return dict(head_nodes)
+@@ -110,30 +107,14 @@ def get_fixers_from_package(pkg_name):
+ def _identity(obj):
+     return obj
+ 
+-if sys.version_info < (3, 0):
+-    import codecs
+-    _open_with_encoding = codecs.open
+-    # codecs.open doesn't translate newlines sadly.
+-    def _from_system_newlines(input):
+-        return input.replace(u"\r\n", u"\n")
+-    def _to_system_newlines(input):
+-        if os.linesep != "\n":
+-            return input.replace(u"\n", os.linesep)
+-        else:
+-            return input
+-else:
+-    _open_with_encoding = open
+-    _from_system_newlines = _identity
+-    _to_system_newlines = _identity
+-
+ 
+ def _detect_future_features(source):
+     have_docstring = False
+-    gen = tokenize.generate_tokens(StringIO.StringIO(source).readline)
++    gen = tokenize.generate_tokens(io.StringIO(source).readline)
+     def advance():
+-        tok = gen.next()
++        tok = next(gen)
+         return tok[0], tok[1]
+-    ignore = frozenset((token.NEWLINE, tokenize.NL, token.COMMENT))
++    ignore = frozenset({token.NEWLINE, tokenize.NL, token.COMMENT})
+     features = set()
+     try:
+         while True:
+@@ -144,20 +125,20 @@ def _detect_future_features(source):
+                 if have_docstring:
+                     break
+                 have_docstring = True
+-            elif tp == token.NAME and value == u"from":
++            elif tp == token.NAME and value == "from":
+                 tp, value = advance()
+-                if tp != token.NAME or value != u"__future__":
++                if tp != token.NAME or value != "__future__":
+                     break
+                 tp, value = advance()
+-                if tp != token.NAME or value != u"import":
++                if tp != token.NAME or value != "import":
+                     break
+                 tp, value = advance()
+-                if tp == token.OP and value == u"(":
++                if tp == token.OP and value == "(":
+                     tp, value = advance()
+                 while tp == token.NAME:
+                     features.add(value)
+                     tp, value = advance()
+-                    if tp != token.OP or value != u",":
++                    if tp != token.OP or value != ",":
+                         break
+                     tp, value = advance()
+             else:
+@@ -173,7 +154,8 @@ class FixerError(Exception):
+ 
+ class RefactoringTool(object):
+ 
+-    _default_options = {"print_function" : False}
++    _default_options = {"print_function" : False,
++                        "write_unchanged_files" : False}
+ 
+     CLASS_PREFIX = "Fix" # The prefix for fixer classes
+     FILE_PREFIX = "fix_" # The prefix for modules with a fixer within
+@@ -183,7 +165,7 @@ class RefactoringTool(object):
+ 
+         Args:
+             fixer_names: a list of fixers to import
+-            options: an dict with configuration.
++            options: a dict with configuration.
+             explicit: a list of fixers to run even if they are explicit.
+         """
+         self.fixers = fixer_names
+@@ -195,6 +177,10 @@ class RefactoringTool(object):
+             self.grammar = pygram.python_grammar_no_print_statement
+         else:
+             self.grammar = pygram.python_grammar
++        # When this is True, the refactor*() methods will call write_file() for
++        # files processed even if they were not changed during refactoring. If
++        # and only if the refactor method's write parameter was True.
++        self.write_unchanged_files = self.options.get("write_unchanged_files")
+         self.errors = []
+         self.logger = logging.getLogger("RefactoringTool")
+         self.fixer_log = []
+@@ -246,11 +232,11 @@ class RefactoringTool(object):
+             try:
+                 fix_class = getattr(mod, class_name)
+             except AttributeError:
+-                raise FixerError("Can't find %s.%s" % (fix_name, class_name))
++                raise FixerError("Can't find %s.%s" % (fix_name, class_name)) from None
+             fixer = fix_class(self.options, self.fixer_log)
+             if fixer.explicit and self.explicit is not True and \
+                     fix_mod_path not in self.explicit:
+-                self.log_message("Skipping implicit fixer: %s", fix_name)
++                self.log_message("Skipping optional fixer: %s", fix_name)
+                 continue
+ 
+             self.log_debug("Adding transformation: %s", fix_name)
+@@ -321,15 +307,15 @@ class RefactoringTool(object):
+         """
+         try:
+             f = open(filename, "rb")
+-        except IOError as err:
++        except OSError as err:
+             self.log_error("Can't open %s: %s", filename, err)
+             return None, None
+         try:
+             encoding = tokenize.detect_encoding(f.readline)[0]
+         finally:
+             f.close()
+-        with _open_with_encoding(filename, "r", encoding=encoding) as f:
+-            return _from_system_newlines(f.read()), encoding
++        with io.open(filename, "r", encoding=encoding, newline='') as f:
++            return f.read(), encoding
+ 
+     def refactor_file(self, filename, write=False, doctests_only=False):
+         """Refactors a file."""
+@@ -337,19 +323,19 @@ class RefactoringTool(object):
+         if input is None:
+             # Reading the file failed.
+             return
+-        input += u"\n" # Silence certain parse errors
++        input += "\n" # Silence certain parse errors
+         if doctests_only:
+             self.log_debug("Refactoring doctests in %s", filename)
+             output = self.refactor_docstring(input, filename)
+-            if output != input:
++            if self.write_unchanged_files or output != input:
+                 self.processed_file(output, filename, input, write, encoding)
+             else:
+                 self.log_debug("No doctest changes in %s", filename)
+         else:
+             tree = self.refactor_string(input, filename)
+-            if tree and tree.was_changed:
++            if self.write_unchanged_files or (tree and tree.was_changed):
+                 # The [:-1] is to take off the \n we added earlier
+-                self.processed_file(unicode(tree)[:-1], filename,
++                self.processed_file(str(tree)[:-1], filename,
+                                     write=write, encoding=encoding)
+             else:
+                 self.log_debug("No changes in %s", filename)
+@@ -386,14 +372,14 @@ class RefactoringTool(object):
+         if doctests_only:
+             self.log_debug("Refactoring doctests in stdin")
+             output = self.refactor_docstring(input, "<stdin>")
+-            if output != input:
++            if self.write_unchanged_files or output != input:
+                 self.processed_file(output, "<stdin>", input)
+             else:
+                 self.log_debug("No doctest changes in stdin")
+         else:
+             tree = self.refactor_string(input, "<stdin>")
+-            if tree and tree.was_changed:
+-                self.processed_file(unicode(tree), "<stdin>", input)
++            if self.write_unchanged_files or (tree and tree.was_changed):
++                self.processed_file(str(tree), "<stdin>", input)
+             else:
+                 self.log_debug("No changes in stdin")
+ 
+@@ -440,7 +426,7 @@ class RefactoringTool(object):
+ 
+                         try:
+                             find_root(node)
+-                        except AssertionError:
++                        except ValueError:
+                             # this node has been cut off from a
+                             # previous transformation ; skip
+                             continue
+@@ -502,7 +488,7 @@ class RefactoringTool(object):
+     def processed_file(self, new_text, filename, old_text=None, write=False,
+                        encoding=None):
+         """
+-        Called when a file has been refactored, and there are changes.
++        Called when a file has been refactored and there may be changes.
+         """
+         self.files.append(filename)
+         if old_text is None:
+@@ -513,7 +499,8 @@ class RefactoringTool(object):
+         self.print_output(old_text, new_text, filename, equal)
+         if equal:
+             self.log_debug("No changes to %s", filename)
+-            return
++            if not self.write_unchanged_files:
++                return
+         if write:
+             self.write_file(new_text, filename, old_text, encoding)
+         else:
+@@ -527,16 +514,16 @@ class RefactoringTool(object):
+         set.
+         """
+         try:
+-            f = _open_with_encoding(filename, "w", encoding=encoding)
+-        except os.error as err:
++            fp = io.open(filename, "w", encoding=encoding, newline='')
++        except OSError as err:
+             self.log_error("Can't create %s: %s", filename, err)
+             return
+-        try:
+-            f.write(_to_system_newlines(new_text))
+-        except os.error as err:
+-            self.log_error("Can't write %s: %s", filename, err)
+-        finally:
+-            f.close()
++
++        with fp:
++            try:
++                fp.write(new_text)
++            except OSError as err:
++                self.log_error("Can't write %s: %s", filename, err)
+         self.log_debug("Wrote changes to %s", filename)
+         self.wrote = True
+ 
+@@ -560,7 +547,7 @@ class RefactoringTool(object):
+         block_lineno = None
+         indent = None
+         lineno = 0
+-        for line in input.splitlines(True):
++        for line in input.splitlines(keepends=True):
+             lineno += 1
+             if line.lstrip().startswith(self.PS1):
+                 if block is not None:
+@@ -572,7 +559,7 @@ class RefactoringTool(object):
+                 indent = line[:i]
+             elif (indent is not None and
+                   (line.startswith(indent + self.PS2) or
+-                   line == indent + self.PS2.rstrip() + u"\n")):
++                   line == indent + self.PS2.rstrip() + "\n")):
+                 block.append(line)
+             else:
+                 if block is not None:
+@@ -584,7 +571,7 @@ class RefactoringTool(object):
+         if block is not None:
+             result.extend(self.refactor_doctest(block, block_lineno,
+                                                 indent, filename))
+-        return u"".join(result)
++        return "".join(result)
+ 
+     def refactor_doctest(self, block, lineno, indent, filename):
+         """Refactors one doctest.
+@@ -599,17 +586,17 @@ class RefactoringTool(object):
+         except Exception as err:
+             if self.logger.isEnabledFor(logging.DEBUG):
+                 for line in block:
+-                    self.log_debug("Source: %s", line.rstrip(u"\n"))
++                    self.log_debug("Source: %s", line.rstrip("\n"))
+             self.log_error("Can't parse docstring in %s line %s: %s: %s",
+                            filename, lineno, err.__class__.__name__, err)
+             return block
+         if self.refactor_tree(tree, filename):
+-            new = unicode(tree).splitlines(True)
++            new = str(tree).splitlines(keepends=True)
+             # Undo the adjustment of the line numbers in wrap_toks() below.
+             clipped, new = new[:lineno-1], new[lineno-1:]
+-            assert clipped == [u"\n"] * (lineno-1), clipped
+-            if not new[-1].endswith(u"\n"):
+-                new[-1] += u"\n"
++            assert clipped == ["\n"] * (lineno-1), clipped
++            if not new[-1].endswith("\n"):
++                new[-1] += "\n"
+             block = [indent + self.PS1 + new.pop(0)]
+             if new:
+                 block += [indent + self.PS2 + line for line in new]
+@@ -650,7 +637,7 @@ class RefactoringTool(object):
+ 
+     def wrap_toks(self, block, lineno, indent):
+         """Wraps a tokenize stream to systematically modify start/end."""
+-        tokens = tokenize.generate_tokens(self.gen_lines(block, indent).next)
++        tokens = tokenize.generate_tokens(self.gen_lines(block, indent).__next__)
+         for type, value, (line0, col0), (line1, col1), line_text in tokens:
+             line0 += lineno - 1
+             line1 += lineno - 1
+@@ -673,8 +660,8 @@ class RefactoringTool(object):
+         for line in block:
+             if line.startswith(prefix):
+                 yield line[len(prefix):]
+-            elif line == prefix.rstrip() + u"\n":
+-                yield u"\n"
++            elif line == prefix.rstrip() + "\n":
++                yield "\n"
+             else:
+                 raise AssertionError("line=%r, prefix=%r" % (line, prefix))
+             prefix = prefix2
+@@ -707,7 +694,7 @@ class MultiprocessRefactoringTool(RefactoringTool):
+         self.queue = multiprocessing.JoinableQueue()
+         self.output_lock = multiprocessing.Lock()
+         processes = [multiprocessing.Process(target=self._child)
+-                     for i in xrange(num_processes)]
++                     for i in range(num_processes)]
+         try:
+             for p in processes:
+                 p.start()
+@@ -715,7 +702,7 @@ class MultiprocessRefactoringTool(RefactoringTool):
+                                                               doctests_only)
+         finally:
+             self.queue.join()
+-            for i in xrange(num_processes):
++            for i in range(num_processes):
+                 self.queue.put(None)
+             for p in processes:
+                 if p.is_alive():
+diff --git a/setup.py b/setup.py
+index cc2846c..8ded67f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -2,7 +2,7 @@ from distutils.core import setup
+ 
+ setup(
+     name='lib2to3',
+-    version='0.4',
++    version='3.8.8',
+     description='A description.',
+     packages=['lib2to3', 'lib2to3.fixes', 'lib2to3.pgen2'],
+     package_data={'lib2to3': ['Grammar.txt', 'PatternGrammar.txt', 'Grammar2.7.2.final.0.pickle', 'PatternGrammar2.7.2.final.0.pickle']}

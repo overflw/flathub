@@ -104,10 +104,7 @@ modules:
             sha256: 2a69597e0dd11caabe75fae133feca66387819fc9bc050f547e5551bce97e5be
       modules: [ PyQt5-deps.json ]
 
-    # numpy:
-    # - build manually in order to make it find and link openblas in /app
-    # - TODO: investigate funky CFLAGS (sse avx popcnt, etc): probably fine
-    # https://numpy.org/devdocs/reference/simd/simd-optimizations.html
+    # numpy: unpack to make build use site.cfg (find and link with openblas in ${FLATPAK_DEST})
     - name: numpy
       buildsystem: simple
       cleanup: [ /bin/f2py, /bin/f2py3, /bin/f2py3.8 ]
@@ -115,7 +112,6 @@ modules:
           env:
               OPENBLAS: ${FLATPAK_DEST}/lib/libopenblas.so
       build-commands:
-          - python setup.py build
           - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
       sources:
           - type: archive
@@ -136,17 +132,13 @@ modules:
                   url: https://github.com/xianyi/OpenBLAS/releases/download/v0.3.13/OpenBLAS-0.3.13.tar.gz
                   sha256: 79197543b17cc314b7e43f7a33148c308b0807cd6381ee77f77e15acf3e6459e
 
-    # scipy:
-    # - build manually in order to make it find and link openblas in /app
-    # - install with pip to avoid ensure-writable: [ /lib/python*/site-packages/easy-install.pth ]
-    # - TODO: more funky CFLAGS
+    # scipy: unpack to make build use site.cfg (find and link with openblas in ${FLATPAK_DEST})
     - name: scipy
       buildsystem: simple
       build-options:
           env:
               OPENBLAS: ${FLATPAK_DEST}/lib/libopenblas.so
       build-commands:
-          - python setup.py build
           - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
       sources:
           - type: archive
@@ -233,7 +225,6 @@ modules:
           - cargo --offline fetch --manifest-path src/rust/Cargo.toml --verbose
           - cd src/rust && cargo --offline build --release --verbose
 
-          - python setup.py build
           - pip3 install --exists-action=i --no-index --find-links=file://${PWD} --prefix=${FLATPAK_DEST} --no-build-isolation .
       sources:
           - type: archive

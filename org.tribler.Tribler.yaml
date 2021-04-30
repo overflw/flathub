@@ -49,7 +49,7 @@ finish-args:
 modules:
     - name: PyQt5
       buildsystem: simple
-      cleanup: [ /scratchdir, /bin/pyuic5]
+      cleanup: [ /scratchdir ]
       build-commands:
           - sip-build --confirm-license
                       --build-dir build
@@ -97,17 +97,11 @@ modules:
           - make -C build INSTALL_ROOT=${FLATPAK_DEST}/scratchdir install
 
           - cp -ar ${FLATPAK_DEST}/scratchdir/usr/* ${FLATPAK_DEST}
-          - cp pyuic5 ${FLATPAK_DEST}/bin
 
       sources:
           - type: archive
             url: https://files.pythonhosted.org/packages/8e/a4/d5e4bf99dd50134c88b95e926d7b81aad2473b47fde5e3e4eac2c69a8942/PyQt5-5.15.4.tar.gz
             sha256: 2a69597e0dd11caabe75fae133feca66387819fc9bc050f547e5551bce97e5be
-          # pyuic5 is referenced in the pyqtgraph source, but does not seem to be neccessary
-          - type: script
-            commands:
-                - exec /usr/bin/python -m PyQt5.uic.pyuic ${1+"$@"}
-            dest-filename: pyuic5
       modules: [ PyQt5-deps.json ]
 
     # numpy:

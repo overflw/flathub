@@ -1,0 +1,35 @@
+{
+    "name": "scipy-deps",
+    "buildsystem": "simple",
+    "build-commands": [],
+    "modules": [
+        {
+            "name": "python3-numpy",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"numpy\" --no-build-isolation"
+            ],
+            "sources": [
+                {
+                    "type": "file",
+                    "url": "https://files.pythonhosted.org/packages/82/a8/1e0f86ae3f13f7ce260e9f782764c16559917f24382c74edfb52149897de/numpy-1.20.2.zip",
+                    "sha256": "878922bf5ad7550aa044aa9301d417e2d3ae50f0f577de92051d739ac6096cee"
+                }
+            ]
+        },
+        {
+            "name": "python3-pybind11",
+            "buildsystem": "simple",
+            "build-commands": [
+                "pip3 install --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"pybind11>=2.4.3\" --no-build-isolation"
+            ],
+            "sources": [
+                {
+                    "type": "file",
+                    "url": "https://files.pythonhosted.org/packages/46/0e/3131a9ae6e6cd1d718cfdd3e2c25f681f2db29be30763aa54b9310de5fea/pybind11-2.6.2.tar.gz",
+                    "sha256": "d0e0aed9279656f21501243b707eb6e3b951e89e10c3271dedf3ae41c365e5ed"
+                }
+            ]
+        }
+    ]
+}
